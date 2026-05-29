@@ -122,6 +122,36 @@ final class MCPHQCommandTests: XCTestCase {
         XCTAssertTrue((warning["message"] as? String)?.contains("Command not found for broken: definitely-not-installed-mcp") == true)
     }
 
+    func testScanReportsMissingSensitiveEnvAsWarning() throws {
+        let tempDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        let configURL = tempDirectory.appendingPathComponent("claude.json")
+        try """
+        {
+          "mcpServers": {
+            "github": {
+              "command": "npx",
+              "env": {
+                "GITHUB_TOKEN": ""
+              }
+            }
+          }
+        }
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+
+        let result = try MCPHQCommand().run(args: ["scan", "--json", "--source", "claude:\(configURL.path)"])
+
+        XCTAssertEqual(result.exitCode, 0)
+        let data = try XCTUnwrap(result.stdout.data(using: .utf8))
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let issues = try XCTUnwrap(object["issues"] as? [[String: Any]])
+        let warning = try XCTUnwrap(issues.first)
+        XCTAssertEqual(warning["severity"] as? String, "warning")
+        XCTAssertTrue((warning["message"] as? String)?.contains("Missing env var for github: GITHUB_TOKEN") == true)
+        XCTAssertTrue((warning["message"] as? String)?.contains("Keychain") == true)
+    }
+
     func testUnknownCommandReturnsUsageError() throws {
         let result = try MCPHQCommand().run(args: ["bogus"])
 

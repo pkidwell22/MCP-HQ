@@ -107,11 +107,18 @@ final class ScanOutputFormatterTests: XCTestCase {
                 sourcePath: "/tmp/claude.json"
             )],
             sources: [ConfigSource(agent: .claude, path: "/tmp/claude.json")],
-            probeResults: [MCPProbeResult(serverID: "memory", status: .healthy, toolCount: 9, message: "tools/list succeeded")]
+            probeResults: [MCPProbeResult(
+                serverID: "memory",
+                status: .healthy,
+                toolCount: 9,
+                resourceCount: 2,
+                resourceNames: ["Project docs", "secret-ghp_1234567890abcdef"],
+                message: "capability discovery succeeded"
+            )]
         )
 
         let text = ScanOutputFormatter().formatText(result)
-        XCTAssertTrue(text.contains("probe: healthy • 9 tools • tools/list succeeded"), text)
+        XCTAssertTrue(text.contains("probe: healthy • 9 tools • 2 resources • capability discovery succeeded"), text)
 
         let json = try ScanOutputFormatter().formatJSON(result)
         let data = try XCTUnwrap(json.data(using: .utf8))
@@ -120,5 +127,7 @@ final class ScanOutputFormatterTests: XCTestCase {
         XCTAssertEqual(probes.first?["serverID"] as? String, "memory")
         XCTAssertEqual(probes.first?["status"] as? String, "healthy")
         XCTAssertEqual(probes.first?["toolCount"] as? Int, 9)
+        XCTAssertEqual(probes.first?["resourceCount"] as? Int, 2)
+        XCTAssertEqual(probes.first?["resourceNames"] as? [String], ["Project docs", "secret-<redacted>"])
     }
 }

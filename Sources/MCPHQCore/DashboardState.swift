@@ -88,6 +88,9 @@ public struct DashboardServerDetail: Identifiable, Equatable, Sendable {
     public let sourcePath: String
     public let toolNames: [String]
     public let toolDetails: [MCPToolDetail]
+    public let resourceSummary: String
+    public let resourceNames: [String]
+    public let resourceDetails: [MCPResourceDetail]
     public let processRows: [DashboardProcessRow]
     public let issueRows: [DashboardIssueRow]
 
@@ -103,6 +106,9 @@ public struct DashboardServerDetail: Identifiable, Equatable, Sendable {
         sourcePath: String,
         toolNames: [String] = [],
         toolDetails: [MCPToolDetail] = [],
+        resourceSummary: String = "Resources not probed",
+        resourceNames: [String] = [],
+        resourceDetails: [MCPResourceDetail] = [],
         processRows: [DashboardProcessRow],
         issueRows: [DashboardIssueRow]
     ) {
@@ -117,6 +123,9 @@ public struct DashboardServerDetail: Identifiable, Equatable, Sendable {
         self.sourcePath = sourcePath
         self.toolNames = toolNames
         self.toolDetails = toolDetails
+        self.resourceSummary = resourceSummary
+        self.resourceNames = resourceNames
+        self.resourceDetails = resourceDetails
         self.processRows = processRows
         self.issueRows = issueRows
     }
@@ -303,6 +312,9 @@ public struct DashboardStateBuilder: Sendable {
             sourcePath: server.sourcePath,
             toolNames: probe?.toolNames ?? [],
             toolDetails: probe?.toolDetails ?? [],
+            resourceSummary: resourceSummary(for: probe),
+            resourceNames: probe?.resourceNames ?? [],
+            resourceDetails: probe?.resourceDetails ?? [],
             processRows: matchedProcessRows,
             issueRows: issueRows
         )
@@ -383,6 +395,12 @@ public struct DashboardStateBuilder: Sendable {
         let status = probe.status.rawValue.capitalized
         guard let toolCount = probe.toolCount else { return "\(status) • tool count unknown" }
         return "\(status) • \(toolCount) \(toolCount == 1 ? "tool" : "tools")"
+    }
+
+    private func resourceSummary(for probe: MCPProbeResult?) -> String {
+        guard let probe else { return "Resources not probed" }
+        guard let resourceCount = probe.resourceCount else { return "Resources not probed" }
+        return "\(resourceCount) \(resourceCount == 1 ? "resource" : "resources")"
     }
 
     private func statusText(serverCount: Int, processCount: Int, sourceCount: Int, warningCount: Int, errorCount: Int) -> String {

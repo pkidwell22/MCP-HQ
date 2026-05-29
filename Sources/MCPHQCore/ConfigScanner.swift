@@ -61,6 +61,21 @@ public struct MCPToolDetail: Codable, Equatable, Sendable, Identifiable {
     }
 }
 
+public struct MCPResourceDetail: Codable, Equatable, Sendable, Identifiable {
+    public var id: String { uri }
+    public let uri: String
+    public let name: String
+    public let description: String
+    public let mimeType: String
+
+    public init(uri: String, name: String = "", description: String = "", mimeType: String = "") {
+        self.uri = SecretRedactor.redactText(uri.trimmingCharacters(in: .whitespacesAndNewlines))
+        self.name = SecretRedactor.redactText(name.trimmingCharacters(in: .whitespacesAndNewlines))
+        self.description = SecretRedactor.redactText(description.trimmingCharacters(in: .whitespacesAndNewlines))
+        self.mimeType = SecretRedactor.redactText(mimeType.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+}
+
 public struct MCPProbeResult: Codable, Equatable, Sendable, Identifiable {
     public var id: String { serverID }
     public let serverID: String
@@ -68,9 +83,22 @@ public struct MCPProbeResult: Codable, Equatable, Sendable, Identifiable {
     public let toolCount: Int?
     public let toolNames: [String]
     public let toolDetails: [MCPToolDetail]
+    public let resourceCount: Int?
+    public let resourceNames: [String]
+    public let resourceDetails: [MCPResourceDetail]
     public let message: String
 
-    public init(serverID: String, status: MCPProbeStatus, toolCount: Int? = nil, toolNames: [String] = [], toolDetails: [MCPToolDetail] = [], message: String) {
+    public init(
+        serverID: String,
+        status: MCPProbeStatus,
+        toolCount: Int? = nil,
+        toolNames: [String] = [],
+        toolDetails: [MCPToolDetail] = [],
+        resourceCount: Int? = nil,
+        resourceNames: [String] = [],
+        resourceDetails: [MCPResourceDetail] = [],
+        message: String
+    ) {
         self.serverID = serverID
         self.status = status
         self.toolCount = toolCount
@@ -78,6 +106,11 @@ public struct MCPProbeResult: Codable, Equatable, Sendable, Identifiable {
             .map { SecretRedactor.redactText($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
             .filter { !$0.isEmpty }
         self.toolDetails = toolDetails.filter { !$0.name.isEmpty }
+        self.resourceCount = resourceCount
+        self.resourceNames = resourceNames
+            .map { SecretRedactor.redactText($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+            .filter { !$0.isEmpty }
+        self.resourceDetails = resourceDetails.filter { !$0.uri.isEmpty }
         self.message = message
     }
 }

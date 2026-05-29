@@ -82,13 +82,19 @@ public struct MCPStdioProbe: Sendable {
             }
             let toolNames = tools.compactMap { $0["name"] as? String }
             let toolDetails = tools.compactMap(makeToolDetail)
+            let resourceProbe = supportsResources(in: initializeResponse)
+                ? try readResources(process: process, stdin: stdin.fileHandleForWriting, stdoutBuffer: stdoutBuffer)
+                : nil
             return MCPProbeResult(
                 serverID: server.id,
                 status: .healthy,
                 toolCount: tools.count,
                 toolNames: toolNames,
                 toolDetails: toolDetails,
-                message: "tools/list succeeded"
+                resourceCount: resourceProbe?.resources.count,
+                resourceNames: resourceProbe?.resourceNames ?? [],
+                resourceDetails: resourceProbe?.resourceDetails ?? [],
+                message: resourceProbe == nil ? "tools/list succeeded" : "capability discovery succeeded"
             )
         } catch ProbeError.timedOut {
             terminate(process)
@@ -196,6 +202,30 @@ public struct MCPStdioProbe: Sendable {
         ]
     }
 
+    private func resourcesListRequest(id: Int) -> [String: Any] {
+        [
+            "jsonrpc": "2.0",
+            "id": id,
+            "method": "resources/list",
+            "params": [:]
+        ]
+    }
+
+    private func readResources(process: Process, stdin: FileHandle, stdoutBuffer: LockedDataBuffer) throws -> ResourceProbePayload? {
+        try writeJSONLine(resourcesListRequest(id: 3), to: stdin)
+        let response = try waitForResponse(id: 3, process: process, buffer: stdoutBuffer, timeout: timeout)
+        if errorMessage(in: response) != nil { return nil }
+        guard let result = response["result"] as? [String: Any],
+              let resources = result["resources"] as? [[String: Any]] else { return nil }
+        return ResourceProbePayload(resources: resources)
+    }
+
+    private func supportsResources(in initializeResponse: [String: Any]) -> Bool {
+        guard let result = initializeResponse["result"] as? [String: Any],
+              let capabilities = result["capabilities"] as? [String: Any] else { return false }
+        return capabilities["resources"] != nil
+    }
+
     private func makeToolDetail(from tool: [String: Any]) -> MCPToolDetail? {
         guard let name = tool["name"] as? String, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         return MCPToolDetail(
@@ -247,6 +277,31 @@ public struct MCPStdioProbe: Sendable {
             kill(process.processIdentifier, SIGKILL)
         }
         #endif
+    }
+}
+
+private struct ResourceProbePayload {
+    let resources: [[String: Any]]
+    let resourceNames: [String]
+    let resourceDetails: [MCPResourceDetail]
+
+    init(resources: [[String: Any]]) {
+        self.resources = resources
+        self.resourceDetails = resources.compactMap { resource in
+            guard let uri = resource["uri"] as? String, !uri.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+            return MCPResourceDetail(
+                uri: uri,
+                name: resource["name"] as? String ?? "",
+                description: resource["description"] as? String ?? "",
+                mimeType: resource["mimeType"] as? String ?? ""
+            )
+        }
+        self.resourceNames = resources.compactMap { resource in
+            if let name = resource["name"] as? String, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return name
+            }
+            return resource["uri"] as? String
+        }
     }
 }
 

@@ -18,7 +18,7 @@ final class MCPStdioProbeTests: XCTestCase {
                     "id": request["id"],
                     "result": {
                         "protocolVersion": "2024-11-05",
-                        "capabilities": {"tools": {}},
+                        "capabilities": {"tools": {}, "resources": {}},
                         "serverInfo": {"name": "fake", "version": "1.0.0"}
                     }
                 }), flush=True)
@@ -47,6 +47,25 @@ final class MCPStdioProbeTests: XCTestCase {
                         ]
                     }
                 }), flush=True)
+            elif method == "resources/list":
+                print(json.dumps({
+                    "jsonrpc": "2.0",
+                    "id": request["id"],
+                    "result": {
+                        "resources": [
+                            {
+                                "uri": "file:///safe/project.md",
+                                "name": "Project notes",
+                                "description": "Shared planning notes",
+                                "mimeType": "text/markdown"
+                            },
+                            {
+                                "uri": "secret://token/\(suspiciousToolName)",
+                                "description": "Resource leaks api_key=\(suspiciousToolName)"
+                            }
+                        ]
+                    }
+                }), flush=True)
                 break
         """)
         let server = ServerDefinition(
@@ -63,14 +82,24 @@ final class MCPStdioProbeTests: XCTestCase {
         XCTAssertEqual(result.status, .healthy)
         XCTAssertEqual(result.toolCount, 3)
         XCTAssertEqual(result.toolNames, ["alpha", "beta", "danger-<redacted>"])
+        XCTAssertEqual(result.resourceCount, 2)
+        XCTAssertEqual(result.resourceNames, ["Project notes", "secret:<redacted>"])
         XCTAssertEqual(result.toolDetails.map(\.name), ["alpha", "beta", "danger-<redacted>"])
         let alpha = try XCTUnwrap(result.toolDetails.first)
         XCTAssertEqual(alpha.description, "Read project files safely")
         XCTAssertEqual(alpha.inputSchemaSummary, "object • required: path • properties: limit, path")
         let beta = try XCTUnwrap(result.toolDetails.dropFirst().first)
         XCTAssertEqual(beta.description, "Beta tool uses token=<redacted>")
+        let firstResource = try XCTUnwrap(result.resourceDetails.first)
+        XCTAssertEqual(firstResource.uri, "file:///safe/project.md")
+        XCTAssertEqual(firstResource.name, "Project notes")
+        XCTAssertEqual(firstResource.description, "Shared planning notes")
+        XCTAssertEqual(firstResource.mimeType, "text/markdown")
+        let secondResource = try XCTUnwrap(result.resourceDetails.dropFirst().first)
+        XCTAssertEqual(secondResource.uri, "secret:<redacted>")
+        XCTAssertEqual(secondResource.description, "Resource leaks api_key=<redacted>")
         XCTAssertFalse(String(describing: result).contains(suspiciousToolName))
-        XCTAssertEqual(result.message, "tools/list succeeded")
+        XCTAssertEqual(result.message, "capability discovery succeeded")
     }
 
     func testProbeReturnsErrorWhenServerTimesOut() throws {

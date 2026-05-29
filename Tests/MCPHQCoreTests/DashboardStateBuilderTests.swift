@@ -171,6 +171,20 @@ final class DashboardStateBuilderTests: XCTestCase {
                         inputSchemaSummary: "object"
                     ),
                 ],
+                resourceCount: 2,
+                resourceNames: ["Repo docs", suspiciousToolName],
+                resourceDetails: [
+                    MCPResourceDetail(
+                        uri: "file:///repo/README.md",
+                        name: "Repo docs",
+                        description: "Repository README",
+                        mimeType: "text/markdown"
+                    ),
+                    MCPResourceDetail(
+                        uri: "secret://\(suspiciousToolName)",
+                        description: "Leaky resource api_key=\(suspiciousToolName)"
+                    ),
+                ],
                 message: "tools/list succeeded"
             )]
         )
@@ -182,13 +196,18 @@ final class DashboardStateBuilderTests: XCTestCase {
         XCTAssertEqual(detail.displayName, "GitHub")
         XCTAssertEqual(detail.connectionSummary, "stdio • npx -y @modelcontextprotocol/server-github")
         XCTAssertEqual(detail.toolSummary, "Healthy • 3 tools")
+        XCTAssertEqual(detail.resourceSummary, "2 resources")
         XCTAssertEqual(detail.toolNames, ["create_issue", "search_repositories", "danger-<redacted>"])
+        XCTAssertEqual(detail.resourceNames, ["Repo docs", "danger-<redacted>"])
         XCTAssertEqual(detail.toolDetails.map(\.name), ["create_issue", "danger-<redacted>"])
         let createIssue = try XCTUnwrap(detail.toolDetails.first)
         XCTAssertEqual(createIssue.description, "Create a GitHub issue")
         XCTAssertEqual(createIssue.inputSchemaSummary, "object • required: owner, repo, title • properties: body, owner, repo, title")
         let redactedTool = try XCTUnwrap(detail.toolDetails.dropFirst().first)
         XCTAssertEqual(redactedTool.description, "Leaky description token=<redacted>")
+        XCTAssertEqual(detail.resourceDetails.map(\.uri), ["file:///repo/README.md", "secret:<redacted>"])
+        let redactedResource = try XCTUnwrap(detail.resourceDetails.dropFirst().first)
+        XCTAssertEqual(redactedResource.description, "Leaky resource api_key=<redacted>")
         XCTAssertEqual(detail.sourcePath, source.path)
         XCTAssertEqual(detail.redactedEnvBindings["GITHUB_TOKEN"], "<redacted>")
         XCTAssertEqual(detail.processRows.map(\.pid), [4201])

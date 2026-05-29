@@ -4,8 +4,13 @@ public struct ScanOutputFormatter: Sendable {
     public init() {}
 
     private func probeSummary(for result: MCPProbeResult) -> String {
-        let countText = result.toolCount.map { "\($0) \($0 == 1 ? "tool" : "tools")" } ?? "tool count unknown"
-        return "\(result.status.rawValue) • \(countText) • \(result.message)"
+        let toolText = result.toolCount.map { "\($0) \($0 == 1 ? "tool" : "tools")" } ?? "tool count unknown"
+        var parts = [result.status.rawValue, toolText]
+        if let resourceCount = result.resourceCount {
+            parts.append("\(resourceCount) \(resourceCount == 1 ? "resource" : "resources")")
+        }
+        parts.append(result.message)
+        return parts.joined(separator: " • ")
     }
 
     public func formatText(_ result: ScanResult) -> String {

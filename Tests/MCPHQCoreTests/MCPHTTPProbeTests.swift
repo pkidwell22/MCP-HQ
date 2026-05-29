@@ -21,7 +21,7 @@ final class MCPHTTPProbeTests: XCTestCase {
                         "id": request["id"],
                         "result": {
                             "protocolVersion": "2024-11-05",
-                            "capabilities": {"tools": {}},
+                            "capabilities": {"tools": {}, "resources": {}},
                             "serverInfo": {"name": "http-test", "version": "1.0.0"}
                         }
                     }
@@ -51,6 +51,29 @@ final class MCPHTTPProbeTests: XCTestCase {
                                         "required": ["query"],
                                         "properties": {"query": {"type": "string"}}
                                     }
+                                }
+                            ]
+                        }
+                    }
+                    self.send_json(response)
+                elif method == "resources/list":
+                    if self.headers.get("Mcp-Session-Id") != "session-123":
+                        self.send_json({
+                            "jsonrpc": "2.0",
+                            "id": request["id"],
+                            "error": {"code": -32000, "message": "missing session"}
+                        })
+                        return
+                    response = {
+                        "jsonrpc": "2.0",
+                        "id": request["id"],
+                        "result": {
+                            "resources": [
+                                {
+                                    "uri": "https://docs.example.test/project",
+                                    "name": "Project docs",
+                                    "description": "Docs with token=***",
+                                    "mimeType": "text/markdown"
                                 }
                             ]
                         }
@@ -95,12 +118,19 @@ final class MCPHTTPProbeTests: XCTestCase {
         XCTAssertEqual(result.status, .healthy)
         XCTAssertEqual(result.toolCount, 1)
         XCTAssertEqual(result.toolNames, ["remote-alpha"])
+        XCTAssertEqual(result.resourceCount, 1)
+        XCTAssertEqual(result.resourceNames, ["Project docs"])
         let detail = try XCTUnwrap(result.toolDetails.first)
         XCTAssertEqual(detail.name, "remote-alpha")
         XCTAssertEqual(detail.description, "Remote tool with api_key=<redacted>")
         XCTAssertEqual(detail.inputSchemaSummary, "object • required: query • properties: query")
-        XCTAssertFalse(String(describing: result).contains("sk-test-secret"))
-        XCTAssertEqual(result.message, "tools/list succeeded")
+        let resource = try XCTUnwrap(result.resourceDetails.first)
+        XCTAssertEqual(resource.uri, "https://docs.example.test/project")
+        XCTAssertEqual(resource.name, "Project docs")
+        XCTAssertEqual(resource.description, "Docs with token=<redacted>")
+        XCTAssertEqual(resource.mimeType, "text/markdown")
+        XCTAssertFalse(String(describing: result).contains("***"))
+        XCTAssertEqual(result.message, "capability discovery succeeded")
     }
 
     func testProbeParsesSSEFramedJSONRPCResponses() throws {

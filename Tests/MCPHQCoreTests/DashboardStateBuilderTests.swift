@@ -61,6 +61,7 @@ final class DashboardStateBuilderTests: XCTestCase {
         XCTAssertEqual(state.serverRows[0].connectionSummary, "sse • http://localhost:8181/mcp")
         XCTAssertEqual(state.serverRows[1].connectionSummary, "stdio • npx -y @modelcontextprotocol/server-github")
         XCTAssertEqual(state.serverRows[1].processSummary, "Matched pid 1201 • high")
+        XCTAssertEqual(state.serverRows[1].toolSummary, "Probe not run")
         XCTAssertEqual(state.serverRows[1].envSummary, "2 env vars")
         XCTAssertEqual(state.serverRows[1].redactedEnvBindings["GITHUB_TOKEN"], "<redacted>")
         XCTAssertEqual(state.serverRows[1].redactedEnvBindings["SAFE_REFERENCE"], "${GITHUB_TOKEN}")
@@ -103,5 +104,25 @@ final class DashboardStateBuilderTests: XCTestCase {
 
         XCTAssertEqual(row.redactedEnvBindings["GITHUB_TOKEN"], "<redacted>")
         XCTAssertFalse(String(describing: state).contains("fake-secret-token-1234567890"))
+    }
+
+    func testBuildsToolSummaryFromHealthyProbeResult() throws {
+        let result = ScanResult(
+            servers: [ServerDefinition(
+                id: "memory",
+                displayName: "Memory",
+                transport: .stdio,
+                command: "npx",
+                args: ["-y", "@modelcontextprotocol/server-memory"],
+                sourcePath: "/tmp/claude.json"
+            )],
+            sources: [ConfigSource(agent: .claude, path: "/tmp/claude.json")],
+            probeResults: [MCPProbeResult(serverID: "memory", status: .healthy, toolCount: 9, message: "tools/list succeeded")]
+        )
+
+        let state = DashboardStateBuilder().build(from: result)
+        let row = try XCTUnwrap(state.serverRows.first)
+
+        XCTAssertEqual(row.toolSummary, "Healthy • 9 tools")
     }
 }

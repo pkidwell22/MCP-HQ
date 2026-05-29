@@ -41,25 +41,50 @@ public struct ScanIssue: Codable, Equatable, Sendable, Identifiable {
     }
 }
 
+public enum MCPProbeStatus: String, Codable, Equatable, Sendable {
+    case healthy
+    case warning
+    case error
+    case skipped
+}
+
+public struct MCPProbeResult: Codable, Equatable, Sendable, Identifiable {
+    public var id: String { serverID }
+    public let serverID: String
+    public let status: MCPProbeStatus
+    public let toolCount: Int?
+    public let message: String
+
+    public init(serverID: String, status: MCPProbeStatus, toolCount: Int? = nil, message: String) {
+        self.serverID = serverID
+        self.status = status
+        self.toolCount = toolCount
+        self.message = message
+    }
+}
+
 public struct ScanResult: Codable, Equatable, Sendable {
     public let servers: [ServerDefinition]
     public let sources: [ConfigSource]
     public let issues: [ScanIssue]
     public let processes: [MCPProcessSnapshot]
     public let processMatches: [ServerProcessMatch]
+    public let probeResults: [MCPProbeResult]
 
     public init(
         servers: [ServerDefinition],
         sources: [ConfigSource],
         issues: [ScanIssue] = [],
         processes: [MCPProcessSnapshot] = [],
-        processMatches: [ServerProcessMatch] = []
+        processMatches: [ServerProcessMatch] = [],
+        probeResults: [MCPProbeResult] = []
     ) {
         self.servers = servers
         self.sources = sources
         self.issues = issues
         self.processes = processes
         self.processMatches = processMatches
+        self.probeResults = probeResults
     }
 }
 

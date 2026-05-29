@@ -4,15 +4,18 @@ public struct MCPHQCommand: Sendable {
     private let defaultSourceProvider: DefaultConfigSourceProvider
     private let formatter: ScanOutputFormatter
     private let processScanner: MCPProcessScanner
+    private let probeProvider: @Sendable ([ServerDefinition]) -> [MCPProbeResult]
 
     public init(
         defaultSourceProvider: DefaultConfigSourceProvider = DefaultConfigSourceProvider(),
         formatter: ScanOutputFormatter = ScanOutputFormatter(),
-        processScanner: MCPProcessScanner = MCPProcessScanner()
+        processScanner: MCPProcessScanner = MCPProcessScanner(),
+        probeProvider: @escaping @Sendable ([ServerDefinition]) -> [MCPProbeResult] = { _ in [] }
     ) {
         self.defaultSourceProvider = defaultSourceProvider
         self.formatter = formatter
         self.processScanner = processScanner
+        self.probeProvider = probeProvider
     }
 
     public func run(args: [String]) throws -> MCPHQCommandResult {
@@ -51,12 +54,14 @@ public struct MCPHQCommand: Sendable {
         let sources = explicitSources.isEmpty ? defaultSourceProvider.sources() : explicitSources
         let configResult = ConfigScanner(configSources: sources).scan()
         let processes = processScanner.scan()
+        let probeResults = probeProvider(configResult.servers)
         let result = ScanResult(
             servers: configResult.servers,
             sources: configResult.sources,
             issues: configResult.issues + ServerDiagnosticChecker().issues(servers: configResult.servers, sources: configResult.sources),
             processes: processes,
-            processMatches: ServerProcessMatcher().matches(servers: configResult.servers, processes: processes)
+            processMatches: ServerProcessMatcher().matches(servers: configResult.servers, processes: processes),
+            probeResults: probeResults
         )
         let stdout = outputJSON ? try formatter.formatJSON(result) : formatter.formatText(result)
         return MCPHQCommandResult(exitCode: 0, stdout: stdout, stderr: "")

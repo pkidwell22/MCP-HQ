@@ -240,6 +240,10 @@ struct ServerRowView: View {
                 .font(.caption)
                 .foregroundStyle(row.processSummary.hasPrefix("Matched") ? .green : .secondary)
 
+            Text(row.toolSummary)
+                .font(.caption)
+                .foregroundStyle(row.toolSummary.hasPrefix("Healthy") ? .green : .secondary)
+
             Text(row.sourcePath)
                 .font(.caption)
                 .foregroundStyle(.secondary)

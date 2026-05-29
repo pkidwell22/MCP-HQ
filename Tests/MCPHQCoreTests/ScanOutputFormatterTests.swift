@@ -75,7 +75,7 @@ final class ScanOutputFormatterTests: XCTestCase {
                 displayName: "github",
                 transport: .stdio,
                 command: "mcp-server-github",
-                envBindings: ["GITHUB_TOKEN": "ghp_abcdefghijklmnopqrstuvwxyz123456"],
+                envBindings: ["GITHUB_TOKEN": "ghp_ab...3456"],
                 sourcePath: "/tmp/claude.json"
             )],
             sources: [ConfigSource(agent: .claude, path: "/tmp/claude.json")],
@@ -94,5 +94,31 @@ final class ScanOutputFormatterTests: XCTestCase {
         XCTAssertNotNil(object?["issues"])
         XCTAssertNotNil(object?["processMatches"])
         XCTAssertFalse(output.contains("ghp_ab...3456"))
+    }
+
+    func testFormatterPrintsProbeToolCounts() throws {
+        let result = ScanResult(
+            servers: [ServerDefinition(
+                id: "memory",
+                displayName: "memory",
+                transport: .stdio,
+                command: "npx",
+                args: ["-y", "@modelcontextprotocol/server-memory"],
+                sourcePath: "/tmp/claude.json"
+            )],
+            sources: [ConfigSource(agent: .claude, path: "/tmp/claude.json")],
+            probeResults: [MCPProbeResult(serverID: "memory", status: .healthy, toolCount: 9, message: "tools/list succeeded")]
+        )
+
+        let text = ScanOutputFormatter().formatText(result)
+        XCTAssertTrue(text.contains("probe: healthy • 9 tools • tools/list succeeded"), text)
+
+        let json = try ScanOutputFormatter().formatJSON(result)
+        let data = try XCTUnwrap(json.data(using: .utf8))
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let probes = try XCTUnwrap(object["probeResults"] as? [[String: Any]])
+        XCTAssertEqual(probes.first?["serverID"] as? String, "memory")
+        XCTAssertEqual(probes.first?["status"] as? String, "healthy")
+        XCTAssertEqual(probes.first?["toolCount"] as? Int, 9)
     }
 }

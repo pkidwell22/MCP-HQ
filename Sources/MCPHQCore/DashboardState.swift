@@ -40,6 +40,7 @@ public struct DashboardServerRow: Identifiable, Equatable, Sendable {
     public let transport: MCPTransport
     public let connectionSummary: String
     public let processSummary: String
+    public let toolSummary: String
     public let envSummary: String
     public let redactedEnvBindings: [String: String]
     public let sourcePath: String
@@ -50,6 +51,7 @@ public struct DashboardServerRow: Identifiable, Equatable, Sendable {
         transport: MCPTransport,
         connectionSummary: String,
         processSummary: String = "No running process matched",
+        toolSummary: String = "Probe not run",
         envSummary: String,
         redactedEnvBindings: [String: String],
         sourcePath: String
@@ -59,6 +61,7 @@ public struct DashboardServerRow: Identifiable, Equatable, Sendable {
         self.transport = transport
         self.connectionSummary = connectionSummary
         self.processSummary = processSummary
+        self.toolSummary = toolSummary
         self.envSummary = envSummary
         self.redactedEnvBindings = redactedEnvBindings
         self.sourcePath = sourcePath
@@ -120,8 +123,9 @@ public struct DashboardStateBuilder: Sendable {
         )
 
         let matchesByServer = Dictionary(grouping: result.processMatches, by: \.serverID)
+        let probesByServer = Dictionary(uniqueKeysWithValues: result.probeResults.map { ($0.serverID, $0) })
         let serverRows = result.servers
-            .map { makeServerRow($0, matches: matchesByServer[$0.id] ?? []) }
+            .map { makeServerRow($0, matches: matchesByServer[$0.id] ?? [], probe: probesByServer[$0.id]) }
             .sorted { lhs, rhs in
                 lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
             }
@@ -143,13 +147,14 @@ public struct DashboardStateBuilder: Sendable {
         return DashboardState(summary: summary, serverRows: serverRows, processRows: processRows, issueRows: issueRows)
     }
 
-    private func makeServerRow(_ server: ServerDefinition, matches: [ServerProcessMatch]) -> DashboardServerRow {
+    private func makeServerRow(_ server: ServerDefinition, matches: [ServerProcessMatch], probe: MCPProbeResult?) -> DashboardServerRow {
         DashboardServerRow(
             id: server.id,
             displayName: server.displayName,
             transport: server.transport,
             connectionSummary: connectionSummary(for: server),
             processSummary: processSummary(for: matches),
+            toolSummary: toolSummary(for: probe),
             envSummary: envSummary(for: server.envBindings),
             redactedEnvBindings: server.redactedEnvBindings,
             sourcePath: server.sourcePath
@@ -204,6 +209,13 @@ public struct DashboardStateBuilder: Sendable {
             let pids = sortedMatches.map { String($0.processID) }.joined(separator: ", ")
             return "Matched pids \(pids)"
         }
+    }
+
+    private func toolSummary(for probe: MCPProbeResult?) -> String {
+        guard let probe else { return "Probe not run" }
+        let status = probe.status.rawValue.capitalized
+        guard let toolCount = probe.toolCount else { return "\(status) • tool count unknown" }
+        return "\(status) • \(toolCount) \(toolCount == 1 ? "tool" : "tools")"
     }
 
     private func statusText(serverCount: Int, processCount: Int, sourceCount: Int, warningCount: Int, errorCount: Int) -> String {

@@ -3,6 +3,11 @@ import Foundation
 public struct ScanOutputFormatter: Sendable {
     public init() {}
 
+    private func probeSummary(for result: MCPProbeResult) -> String {
+        let countText = result.toolCount.map { "\($0) \($0 == 1 ? "tool" : "tools")" } ?? "tool count unknown"
+        return "\(result.status.rawValue) • \(countText) • \(result.message)"
+    }
+
     public func formatText(_ result: ScanResult) -> String {
         var lines: [String] = []
         lines.append("MCP-HQ scan")
@@ -13,6 +18,7 @@ public struct ScanOutputFormatter: Sendable {
 
         if !result.servers.isEmpty {
             lines.append("")
+            let probesByServer = Dictionary(uniqueKeysWithValues: result.probeResults.map { ($0.serverID, $0) })
             for server in result.servers {
                 lines.append(server.displayName)
                 lines.append("  transport: \(server.transport.rawValue)")
@@ -31,6 +37,9 @@ public struct ScanOutputFormatter: Sendable {
                     }
                 }
                 lines.append("  source: \(server.sourcePath)")
+                if let probe = probesByServer[server.id] {
+                    lines.append("  probe: \(probeSummary(for: probe))")
+                }
                 lines.append("")
             }
             if lines.last == "" { lines.removeLast() }
@@ -89,6 +98,7 @@ private struct SafeScanResult: Codable {
     let issues: [ScanIssue]
     let processes: [MCPProcessSnapshot]
     let processMatches: [ServerProcessMatch]
+    let probeResults: [MCPProbeResult]
 
     init(result: ScanResult) {
         self.servers = result.servers.map(SafeServerDefinition.init(server:))
@@ -96,6 +106,7 @@ private struct SafeScanResult: Codable {
         self.issues = result.issues
         self.processes = result.processes
         self.processMatches = result.processMatches
+        self.probeResults = result.probeResults
     }
 }
 

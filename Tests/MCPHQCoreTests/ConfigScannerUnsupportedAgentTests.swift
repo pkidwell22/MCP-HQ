@@ -6,15 +6,15 @@ final class ConfigScannerUnsupportedAgentTests: XCTestCase {
         let tempDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
-        let configURL = tempDirectory.appendingPathComponent("mcp_config.json")
+        let configURL = tempDirectory.appendingPathComponent("mcp.json")
         try "{}".write(to: configURL, atomically: true, encoding: .utf8)
 
         let result = ConfigScanner(configSources: [
-            ConfigSource(agent: .gemini, path: configURL.path),
+            ConfigSource(agent: .cursor, path: configURL.path),
         ]).scan()
 
         XCTAssertEqual(result.servers, [])
-        XCTAssertEqual(result.sources, [ConfigSource(agent: .gemini, path: configURL.path)])
+        XCTAssertEqual(result.sources, [ConfigSource(agent: .cursor, path: configURL.path)])
         XCTAssertEqual(result.issues.count, 1)
         XCTAssertEqual(result.issues.first?.severity, .warning)
         XCTAssertTrue(result.issues.first?.message.contains("Unsupported agent") == true)

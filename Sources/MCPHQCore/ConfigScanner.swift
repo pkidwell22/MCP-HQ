@@ -73,9 +73,11 @@ public struct ConfigScanner: Sendable {
                 switch source.agent {
                 case .claude:
                     parsed = try ClaudeConfigParser().parse(data: data, sourcePath: source.path)
+                case .gemini:
+                    parsed = try GeminiConfigParser().parse(data: data, sourcePath: source.path)
                 case .hermes:
                     parsed = try HermesConfigParser().parse(data: data, sourcePath: source.path)
-                case .gemini, .cursor, .windsurf, .continue, .goose, .unknown:
+                case .cursor, .windsurf, .continue, .goose, .unknown:
                     parsed = []
                     issues.append(ScanIssue(
                         source: source,

@@ -1,0 +1,23 @@
+{
+  "mcpServers": {
+    "context7": {
+      "command": "npx",
+      "args": ["-y", "@upstash/context7-mcp"],
+      "env": {
+        "CONTEXT7_API_KEY": "fake-secret-token-1234567890",
+        "SAFE_REFERENCE": "${CONTEXT7_API_KEY}"
+      }
+    },
+    "browserbase": {
+      "url": "http://127.0.0.1:8931/mcp",
+      "transport": "sse",
+      "headers": {
+        "Authorization": "Bearer fake-secret-token-1234567890"
+      }
+    },
+    "disabled_server": {
+      "command": "should-not-appear",
+      "disabled": true
+    }
+  }
+}

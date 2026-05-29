@@ -4,7 +4,7 @@ MCP-HQ is a proposed native macOS control center for local Model Context Protoco
 
 The product direction is: see, fix, configure, and eventually broker every MCP server on a Mac from one place.
 
-This repo contains architecture/product planning documents plus the first Swift package skeleton for the app, CLI, and core library.
+This repo contains architecture/product planning documents plus a Swift package for the app, CLI, and core library. The first usable CLI command is `mcphq scan`, which safely inventories MCP config sources and redacts env values in text and JSON output.
 
 ## Planning docs
 
@@ -14,6 +14,18 @@ This repo contains architecture/product planning documents plus the first Swift 
 - `docs/INFRASTRUCTURE_FLOW.md` — discovery, config generation, server lifecycle, proxy flow diagrams.
 - `docs/ROADMAP.md` — phased build plan from read-only scanner to MCP router.
 - `docs/OPEN_QUESTIONS.md` — technical, product, and distribution questions to answer early.
+
+## CLI
+
+Run a safe MCP inventory scan:
+
+```bash
+swift run mcphq scan
+swift run mcphq scan --json
+swift run mcphq scan --source claude:/path/to/claude_desktop_config.json
+```
+
+`scan` skips missing default config paths, reports malformed or unsupported existing configs as issues, and uses redacted env bindings for both terminal and JSON output.
 
 ## Core architectural principle
 

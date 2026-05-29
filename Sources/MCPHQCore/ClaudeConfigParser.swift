@@ -53,6 +53,15 @@ public struct ClaudeConfigParser: Sendable {
 
 private struct ClaudeMCPConfig: Decodable {
     let mcpServers: [String: ClaudeMCPServer]
+
+    private enum CodingKeys: String, CodingKey {
+        case mcpServers
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.mcpServers = try container.decodeIfPresent([String: ClaudeMCPServer].self, forKey: .mcpServers) ?? [:]
+    }
 }
 
 private struct ClaudeMCPServer: Decodable {

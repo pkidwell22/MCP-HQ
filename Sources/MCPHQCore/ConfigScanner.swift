@@ -4,6 +4,10 @@ public enum AgentID: String, Codable, Equatable, Sendable {
     case claude
     case gemini
     case hermes
+    case cursor
+    case windsurf
+    case `continue`
+    case goose
     case unknown
 }
 
@@ -69,8 +73,13 @@ public struct ConfigScanner: Sendable {
                 switch source.agent {
                 case .claude:
                     parsed = try ClaudeConfigParser().parse(data: data, sourcePath: source.path)
-                case .gemini, .hermes, .unknown:
+                case .gemini, .hermes, .cursor, .windsurf, .continue, .goose, .unknown:
                     parsed = []
+                    issues.append(ScanIssue(
+                        source: source,
+                        severity: .warning,
+                        message: "Unsupported agent config parser: \(source.agent.rawValue)"
+                    ))
                 }
                 servers.append(contentsOf: parsed)
                 seenSources.append(source)

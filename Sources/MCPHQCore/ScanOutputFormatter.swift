@@ -1,0 +1,97 @@
+import Foundation
+
+public struct ScanOutputFormatter: Sendable {
+    public init() {}
+
+    public func formatText(_ result: ScanResult) -> String {
+        var lines: [String] = []
+        lines.append("MCP-HQ scan")
+        lines.append("")
+        lines.append("Servers: \(result.servers.count)")
+        lines.append("Issues: \(result.issues.count)")
+
+        if !result.servers.isEmpty {
+            lines.append("")
+            for server in result.servers {
+                lines.append(server.displayName)
+                lines.append("  transport: \(server.transport.rawValue)")
+                if let command = server.command, !command.isEmpty {
+                    lines.append("  command: \(command)")
+                    lines.append("  args: \(server.args.isEmpty ? "—" : server.args.joined(separator: " "))")
+                }
+                if let url = server.url, !url.isEmpty {
+                    lines.append("  url: \(url)")
+                }
+                let env = server.redactedEnvBindings
+                if !env.isEmpty {
+                    lines.append("  env:")
+                    for key in env.keys.sorted() {
+                        lines.append("    \(key)=\(env[key] ?? "")")
+                    }
+                }
+                lines.append("  source: \(server.sourcePath)")
+                lines.append("")
+            }
+            if lines.last == "" { lines.removeLast() }
+        }
+
+        if !result.issues.isEmpty {
+            lines.append("")
+            lines.append("Issues:")
+            for issue in result.issues {
+                lines.append("  \(issue.severity.rawValue) \(issue.source.agent.rawValue) \(issue.source.path): \(issue.message)")
+            }
+        }
+
+        return lines.joined(separator: "\n")
+    }
+
+    public func formatJSON(_ result: ScanResult) throws -> String {
+        let safeResult = SafeScanResult(result: result)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(safeResult)
+        guard let json = String(data: data, encoding: .utf8) else {
+            throw ScanOutputFormatterError.invalidUTF8
+        }
+        return json
+    }
+}
+
+public enum ScanOutputFormatterError: Error, Equatable, Sendable {
+    case invalidUTF8
+}
+
+private struct SafeScanResult: Codable {
+    let servers: [SafeServerDefinition]
+    let sources: [ConfigSource]
+    let issues: [ScanIssue]
+
+    init(result: ScanResult) {
+        self.servers = result.servers.map(SafeServerDefinition.init(server:))
+        self.sources = result.sources
+        self.issues = result.issues
+    }
+}
+
+private struct SafeServerDefinition: Codable {
+    let id: String
+    let displayName: String
+    let transport: MCPTransport
+    let command: String?
+    let args: [String]
+    let url: String?
+    let envBindings: [String: String]
+    let sourcePath: String
+
+    init(server: ServerDefinition) {
+        self.id = server.id
+        self.displayName = server.displayName
+        self.transport = server.transport
+        self.command = server.command
+        self.args = server.args
+        self.url = server.url
+        self.envBindings = server.redactedEnvBindings
+        self.sourcePath = server.sourcePath
+    }
+}

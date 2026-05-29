@@ -3,13 +3,16 @@ import Foundation
 public struct MCPHQCommand: Sendable {
     private let defaultSourceProvider: DefaultConfigSourceProvider
     private let formatter: ScanOutputFormatter
+    private let processScanner: MCPProcessScanner
 
     public init(
         defaultSourceProvider: DefaultConfigSourceProvider = DefaultConfigSourceProvider(),
-        formatter: ScanOutputFormatter = ScanOutputFormatter()
+        formatter: ScanOutputFormatter = ScanOutputFormatter(),
+        processScanner: MCPProcessScanner = MCPProcessScanner()
     ) {
         self.defaultSourceProvider = defaultSourceProvider
         self.formatter = formatter
+        self.processScanner = processScanner
     }
 
     public func run(args: [String]) throws -> MCPHQCommandResult {
@@ -46,7 +49,13 @@ public struct MCPHQCommand: Sendable {
         }
 
         let sources = explicitSources.isEmpty ? defaultSourceProvider.sources() : explicitSources
-        let result = ConfigScanner(configSources: sources).scan()
+        let configResult = ConfigScanner(configSources: sources).scan()
+        let result = ScanResult(
+            servers: configResult.servers,
+            sources: configResult.sources,
+            issues: configResult.issues,
+            processes: processScanner.scan()
+        )
         let stdout = outputJSON ? try formatter.formatJSON(result) : formatter.formatText(result)
         return MCPHQCommandResult(exitCode: 0, stdout: stdout, stderr: "")
     }

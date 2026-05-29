@@ -200,7 +200,7 @@ Acceptance criteria:
 4. Implement Claude config parser. ✅
 5. Implement Hermes config parser. ✅
 6. Implement Gemini config parser. ✅
-7. Implement process scanner.
+7. Implement process scanner. ✅
 8. Implement server correlation heuristic.
 9. Build server list UI using fixture data.
 10. Connect UI to real scanner.

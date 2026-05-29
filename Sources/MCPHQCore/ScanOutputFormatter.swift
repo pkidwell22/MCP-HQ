@@ -8,6 +8,7 @@ public struct ScanOutputFormatter: Sendable {
         lines.append("MCP-HQ scan")
         lines.append("")
         lines.append("Servers: \(result.servers.count)")
+        lines.append("Processes: \(result.processes.count)")
         lines.append("Issues: \(result.issues.count)")
 
         if !result.servers.isEmpty {
@@ -33,6 +34,15 @@ public struct ScanOutputFormatter: Sendable {
                 lines.append("")
             }
             if lines.last == "" { lines.removeLast() }
+        }
+
+        if !result.processes.isEmpty {
+            lines.append("")
+            lines.append("Running processes:")
+            for process in result.processes.sorted(by: { $0.pid < $1.pid }) {
+                lines.append("  \(process.pid) \(process.executableName): \(process.commandLine)")
+                lines.append("    match: \(process.matchReason)")
+            }
         }
 
         if !result.issues.isEmpty {
@@ -66,11 +76,13 @@ private struct SafeScanResult: Codable {
     let servers: [SafeServerDefinition]
     let sources: [ConfigSource]
     let issues: [ScanIssue]
+    let processes: [MCPProcessSnapshot]
 
     init(result: ScanResult) {
         self.servers = result.servers.map(SafeServerDefinition.init(server:))
         self.sources = result.sources
         self.issues = result.issues
+        self.processes = result.processes
     }
 }
 

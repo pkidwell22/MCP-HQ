@@ -18,19 +18,28 @@ final class DashboardViewModel: ObservableObject {
 
     private let sourceProvider: DefaultConfigSourceProvider
     private let stateBuilder: DashboardStateBuilder
+    private let processScanner: MCPProcessScanner
 
     init(
         sourceProvider: DefaultConfigSourceProvider = DefaultConfigSourceProvider(),
-        stateBuilder: DashboardStateBuilder = DashboardStateBuilder()
+        stateBuilder: DashboardStateBuilder = DashboardStateBuilder(),
+        processScanner: MCPProcessScanner = MCPProcessScanner()
     ) {
         self.sourceProvider = sourceProvider
         self.stateBuilder = stateBuilder
+        self.processScanner = processScanner
         self.state = stateBuilder.build(from: ScanResult(servers: [], sources: [], issues: []))
     }
 
     func refresh() {
         let scanner = ConfigScanner(configSources: sourceProvider.sources())
-        state = stateBuilder.build(from: scanner.scan())
+        let configResult = scanner.scan()
+        state = stateBuilder.build(from: ScanResult(
+            servers: configResult.servers,
+            sources: configResult.sources,
+            issues: configResult.issues,
+            processes: processScanner.scan()
+        ))
         lastRefreshedText = Self.relativeRefreshText(date: Date())
     }
 
@@ -109,12 +118,27 @@ struct DashboardView: View {
             }
             .padding([.horizontal, .top])
 
-            if model.state.serverRows.isEmpty {
+            if model.state.serverRows.isEmpty, model.state.processRows.isEmpty {
                 EmptyInventoryView()
             } else {
-                List(model.state.serverRows) { row in
-                    ServerRowView(row: row)
-                        .padding(.vertical, 6)
+                List {
+                    if !model.state.serverRows.isEmpty {
+                        Section("Configured servers") {
+                            ForEach(model.state.serverRows) { row in
+                                ServerRowView(row: row)
+                                    .padding(.vertical, 6)
+                            }
+                        }
+                    }
+
+                    if !model.state.processRows.isEmpty {
+                        Section("Running MCP-like processes") {
+                            ForEach(model.state.processRows) { row in
+                                ProcessRowView(row: row)
+                                    .padding(.vertical, 6)
+                            }
+                        }
+                    }
                 }
                 .listStyle(.inset)
             }
@@ -129,10 +153,13 @@ struct SummaryGrid: View {
         Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 12) {
             GridRow {
                 SummaryCard(title: "Servers", value: "\(summary.serverCount)")
-                SummaryCard(title: "Sources", value: "\(summary.sourceCount)")
+                SummaryCard(title: "Processes", value: "\(summary.processCount)")
             }
             GridRow {
+                SummaryCard(title: "Sources", value: "\(summary.sourceCount)")
                 SummaryCard(title: "Warnings", value: "\(summary.warningCount)")
+            }
+            GridRow {
                 SummaryCard(title: "Errors", value: "\(summary.errorCount)")
             }
         }
@@ -227,6 +254,32 @@ struct ServerRowView: View {
                 }
                 .font(.caption)
             }
+        }
+    }
+}
+
+struct ProcessRowView: View {
+    let row: DashboardProcessRow
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(row.executableName)
+                    .font(.headline)
+                Text("pid \(row.pid)")
+                    .font(.caption.bold())
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(.quaternary, in: Capsule())
+                Spacer()
+                Text(row.matchReason)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Text(row.commandLine)
+                .font(.system(.subheadline, design: .monospaced))
+                .textSelection(.enabled)
         }
     }
 }

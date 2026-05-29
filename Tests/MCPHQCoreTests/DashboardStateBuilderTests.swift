@@ -30,17 +30,26 @@ final class DashboardStateBuilderTests: XCTestCase {
             sources: [claudeSource, hermesSource],
             issues: [
                 ScanIssue(source: hermesSource, severity: .warning, message: "Unsupported agent config parser: hermes")
+            ],
+            processes: [
+                MCPProcessSnapshot(
+                    pid: 1201,
+                    executableName: "npx",
+                    commandLine: "npx -y @modelcontextprotocol/server-github --token <redacted>",
+                    matchReason: "mcp command pattern"
+                )
             ]
         )
 
         let state = DashboardStateBuilder().build(from: result)
 
         XCTAssertEqual(state.summary.serverCount, 2)
+        XCTAssertEqual(state.summary.processCount, 1)
         XCTAssertEqual(state.summary.sourceCount, 2)
         XCTAssertEqual(state.summary.issueCount, 1)
         XCTAssertEqual(state.summary.warningCount, 1)
         XCTAssertEqual(state.summary.errorCount, 0)
-        XCTAssertEqual(state.summary.statusText, "2 servers • 2 sources • 1 warning")
+        XCTAssertEqual(state.summary.statusText, "2 servers • 1 process • 2 sources • 1 warning")
 
         XCTAssertEqual(state.serverRows.map(\.displayName), ["Docs", "GitHub"])
         XCTAssertEqual(state.serverRows[0].connectionSummary, "sse • http://localhost:8181/mcp")
@@ -53,6 +62,11 @@ final class DashboardStateBuilderTests: XCTestCase {
         XCTAssertEqual(state.issueRows[0].agentName, "hermes")
         XCTAssertEqual(state.issueRows[0].severityLabel, "warning")
         XCTAssertEqual(state.issueRows[0].message, "Unsupported agent config parser: hermes")
+
+        XCTAssertEqual(state.processRows.count, 1)
+        XCTAssertEqual(state.processRows[0].pid, 1201)
+        XCTAssertEqual(state.processRows[0].executableName, "npx")
+        XCTAssertEqual(state.processRows[0].commandLine, "npx -y @modelcontextprotocol/server-github --token <redacted>")
     }
 
     func testBuildsEmptyStateWhenNoConfigsExist() {
@@ -60,6 +74,7 @@ final class DashboardStateBuilderTests: XCTestCase {
 
         XCTAssertEqual(state.summary.statusText, "No MCP configs found")
         XCTAssertEqual(state.serverRows, [])
+        XCTAssertEqual(state.processRows, [])
         XCTAssertEqual(state.issueRows, [])
     }
 

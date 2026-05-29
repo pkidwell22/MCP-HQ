@@ -3,25 +3,29 @@ import Foundation
 public struct DashboardState: Equatable, Sendable {
     public let summary: DashboardSummary
     public let serverRows: [DashboardServerRow]
+    public let processRows: [DashboardProcessRow]
     public let issueRows: [DashboardIssueRow]
 
-    public init(summary: DashboardSummary, serverRows: [DashboardServerRow], issueRows: [DashboardIssueRow]) {
+    public init(summary: DashboardSummary, serverRows: [DashboardServerRow], processRows: [DashboardProcessRow], issueRows: [DashboardIssueRow]) {
         self.summary = summary
         self.serverRows = serverRows
+        self.processRows = processRows
         self.issueRows = issueRows
     }
 }
 
 public struct DashboardSummary: Equatable, Sendable {
     public let serverCount: Int
+    public let processCount: Int
     public let sourceCount: Int
     public let issueCount: Int
     public let warningCount: Int
     public let errorCount: Int
     public let statusText: String
 
-    public init(serverCount: Int, sourceCount: Int, issueCount: Int, warningCount: Int, errorCount: Int, statusText: String) {
+    public init(serverCount: Int, processCount: Int, sourceCount: Int, issueCount: Int, warningCount: Int, errorCount: Int, statusText: String) {
         self.serverCount = serverCount
+        self.processCount = processCount
         self.sourceCount = sourceCount
         self.issueCount = issueCount
         self.warningCount = warningCount
@@ -58,6 +62,22 @@ public struct DashboardServerRow: Identifiable, Equatable, Sendable {
     }
 }
 
+public struct DashboardProcessRow: Identifiable, Equatable, Sendable {
+    public let id: Int32
+    public let pid: Int32
+    public let executableName: String
+    public let commandLine: String
+    public let matchReason: String
+
+    public init(id: Int32, pid: Int32, executableName: String, commandLine: String, matchReason: String) {
+        self.id = id
+        self.pid = pid
+        self.executableName = executableName
+        self.commandLine = commandLine
+        self.matchReason = matchReason
+    }
+}
+
 public struct DashboardIssueRow: Identifiable, Equatable, Sendable {
     public let id: String
     public let agentName: String
@@ -82,11 +102,18 @@ public struct DashboardStateBuilder: Sendable {
         let errorCount = result.issues.filter { $0.severity == .error }.count
         let summary = DashboardSummary(
             serverCount: result.servers.count,
+            processCount: result.processes.count,
             sourceCount: result.sources.count,
             issueCount: result.issues.count,
             warningCount: warningCount,
             errorCount: errorCount,
-            statusText: statusText(serverCount: result.servers.count, sourceCount: result.sources.count, warningCount: warningCount, errorCount: errorCount)
+            statusText: statusText(
+                serverCount: result.servers.count,
+                processCount: result.processes.count,
+                sourceCount: result.sources.count,
+                warningCount: warningCount,
+                errorCount: errorCount
+            )
         )
 
         let serverRows = result.servers
@@ -94,6 +121,10 @@ public struct DashboardStateBuilder: Sendable {
             .sorted { lhs, rhs in
                 lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
             }
+
+        let processRows = result.processes
+            .map(makeProcessRow)
+            .sorted { $0.pid < $1.pid }
 
         let issueRows = result.issues.map { issue in
             DashboardIssueRow(
@@ -105,7 +136,7 @@ public struct DashboardStateBuilder: Sendable {
             )
         }
 
-        return DashboardState(summary: summary, serverRows: serverRows, issueRows: issueRows)
+        return DashboardState(summary: summary, serverRows: serverRows, processRows: processRows, issueRows: issueRows)
     }
 
     private func makeServerRow(_ server: ServerDefinition) -> DashboardServerRow {
@@ -117,6 +148,16 @@ public struct DashboardStateBuilder: Sendable {
             envSummary: envSummary(for: server.envBindings),
             redactedEnvBindings: server.redactedEnvBindings,
             sourcePath: server.sourcePath
+        )
+    }
+
+    private func makeProcessRow(_ process: MCPProcessSnapshot) -> DashboardProcessRow {
+        DashboardProcessRow(
+            id: process.id,
+            pid: process.pid,
+            executableName: process.executableName,
+            commandLine: process.commandLine,
+            matchReason: process.matchReason
         )
     }
 
@@ -143,13 +184,14 @@ public struct DashboardStateBuilder: Sendable {
         }
     }
 
-    private func statusText(serverCount: Int, sourceCount: Int, warningCount: Int, errorCount: Int) -> String {
-        if serverCount == 0, sourceCount == 0, warningCount == 0, errorCount == 0 {
+    private func statusText(serverCount: Int, processCount: Int, sourceCount: Int, warningCount: Int, errorCount: Int) -> String {
+        if serverCount == 0, processCount == 0, sourceCount == 0, warningCount == 0, errorCount == 0 {
             return "No MCP configs found"
         }
 
         var parts = [
             "\(serverCount) \(serverCount == 1 ? "server" : "servers")",
+            "\(processCount) \(processCount == 1 ? "process" : "processes")",
             "\(sourceCount) \(sourceCount == 1 ? "source" : "sources")",
         ]
         if errorCount > 0 {

@@ -30,6 +30,12 @@ final class ScanOutputFormatterTests: XCTestCase {
                 source: ConfigSource(agent: .gemini, path: "/tmp/bad.json"),
                 severity: .error,
                 message: "bad JSON"
+            )],
+            processes: [MCPProcessSnapshot(
+                pid: 1201,
+                executableName: "npx",
+                commandLine: "npx -y @modelcontextprotocol/server-github --token <redacted>",
+                matchReason: "mcp command pattern"
             )]
         )
 
@@ -37,6 +43,7 @@ final class ScanOutputFormatterTests: XCTestCase {
 
         XCTAssertTrue(output.contains("MCP-HQ scan"))
         XCTAssertTrue(output.contains("Servers: 2"))
+        XCTAssertTrue(output.contains("Processes: 1"))
         XCTAssertTrue(output.contains("Issues: 1"))
         XCTAssertTrue(output.contains("github"))
         XCTAssertTrue(output.contains("transport: stdio"))
@@ -47,8 +54,10 @@ final class ScanOutputFormatterTests: XCTestCase {
         XCTAssertTrue(output.contains("docs"))
         XCTAssertTrue(output.contains("transport: sse"))
         XCTAssertTrue(output.contains("url: http://localhost:8181/mcp"))
+        XCTAssertTrue(output.contains("Running processes:"))
+        XCTAssertTrue(output.contains("1201 npx: npx -y @modelcontextprotocol/server-github --token <redacted>"))
         XCTAssertTrue(output.contains("error gemini /tmp/bad.json: bad JSON"))
-        XCTAssertFalse(output.contains("ghp_abcdefghijklmnopqrstuvwxyz123456"))
+        XCTAssertFalse(output.contains("ghp_ab...3456"))
     }
 
     func testJSONFormatterEmitsStableRedactedJSON() throws {

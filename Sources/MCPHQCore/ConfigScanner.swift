@@ -45,11 +45,18 @@ public struct ScanResult: Codable, Equatable, Sendable {
     public let servers: [ServerDefinition]
     public let sources: [ConfigSource]
     public let issues: [ScanIssue]
+    public let processes: [MCPProcessSnapshot]
 
-    public init(servers: [ServerDefinition], sources: [ConfigSource], issues: [ScanIssue] = []) {
+    public init(
+        servers: [ServerDefinition],
+        sources: [ConfigSource],
+        issues: [ScanIssue] = [],
+        processes: [MCPProcessSnapshot] = []
+    ) {
         self.servers = servers
         self.sources = sources
         self.issues = issues
+        self.processes = processes
     }
 }
 

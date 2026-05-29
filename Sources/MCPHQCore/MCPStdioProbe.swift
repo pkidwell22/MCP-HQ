@@ -80,7 +80,14 @@ public struct MCPStdioProbe: Sendable {
             guard let result = toolsResponse["result"] as? [String: Any], let tools = result["tools"] as? [[String: Any]] else {
                 return MCPProbeResult(serverID: server.id, status: .warning, message: "tools/list response did not include tools.")
             }
-            return MCPProbeResult(serverID: server.id, status: .healthy, toolCount: tools.count, message: "tools/list succeeded")
+            let toolNames = tools.compactMap { $0["name"] as? String }
+            return MCPProbeResult(
+                serverID: server.id,
+                status: .healthy,
+                toolCount: tools.count,
+                toolNames: toolNames,
+                message: "tools/list succeeded"
+            )
         } catch ProbeError.timedOut {
             terminate(process)
             return MCPProbeResult(serverID: server.id, status: .error, message: "Timed out waiting for MCP response.")

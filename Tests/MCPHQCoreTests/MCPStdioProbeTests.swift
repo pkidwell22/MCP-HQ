@@ -3,6 +3,7 @@ import XCTest
 
 final class MCPStdioProbeTests: XCTestCase {
     func testProbeInitializesServerAndCountsTools() throws {
+        let suspiciousToolName = "danger-" + "ghp_" + "1234567890abcdef"
         let scriptURL = try makeExecutableScript("fake-mcp.py", contents: """
         #!/usr/bin/env python3
         import json
@@ -28,7 +29,11 @@ final class MCPStdioProbeTests: XCTestCase {
                     "jsonrpc": "2.0",
                     "id": request["id"],
                     "result": {
-                        "tools": [{"name": "alpha"}, {"name": "beta"}]
+                        "tools": [
+                            {"name": "alpha"},
+                            {"name": "beta"},
+                            {"name": "\(suspiciousToolName)"}
+                        ]
                     }
                 }), flush=True)
                 break
@@ -45,7 +50,9 @@ final class MCPStdioProbeTests: XCTestCase {
 
         XCTAssertEqual(result.serverID, "fake")
         XCTAssertEqual(result.status, .healthy)
-        XCTAssertEqual(result.toolCount, 2)
+        XCTAssertEqual(result.toolCount, 3)
+        XCTAssertEqual(result.toolNames, ["alpha", "beta", "danger-<redacted>"])
+        XCTAssertFalse(String(describing: result).contains(suspiciousToolName))
         XCTAssertEqual(result.message, "tools/list succeeded")
     }
 

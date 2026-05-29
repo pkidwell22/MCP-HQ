@@ -299,6 +299,25 @@ struct ServerInspectorView: View {
                 }
             }
 
+            if !detail.toolNames.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Tools")
+                        .font(.caption.bold())
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            ForEach(detail.toolNames, id: \.self) { name in
+                                Text(name)
+                                    .font(.system(.caption2, design: .monospaced))
+                                    .padding(.horizontal, 7)
+                                    .padding(.vertical, 4)
+                                    .background(.thinMaterial, in: Capsule())
+                                    .textSelection(.enabled)
+                            }
+                        }
+                    }
+                }
+            }
+
             if !detail.redactedEnvBindings.isEmpty {
                 DisclosureGroup("Environment") {
                     VStack(alignment: .leading, spacing: 4) {

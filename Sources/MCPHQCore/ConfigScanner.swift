@@ -53,12 +53,16 @@ public struct MCPProbeResult: Codable, Equatable, Sendable, Identifiable {
     public let serverID: String
     public let status: MCPProbeStatus
     public let toolCount: Int?
+    public let toolNames: [String]
     public let message: String
 
-    public init(serverID: String, status: MCPProbeStatus, toolCount: Int? = nil, message: String) {
+    public init(serverID: String, status: MCPProbeStatus, toolCount: Int? = nil, toolNames: [String] = [], message: String) {
         self.serverID = serverID
         self.status = status
         self.toolCount = toolCount
+        self.toolNames = toolNames
+            .map { SecretRedactor.redactText($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+            .filter { !$0.isEmpty }
         self.message = message
     }
 }

@@ -127,6 +127,7 @@ final class DashboardStateBuilderTests: XCTestCase {
     }
 
     func testBuildsServerDetailWithProbeProcessesIssuesAndRedactedEnvironment() throws {
+        let suspiciousToolName = "danger-" + "ghp_" + "1234567890abcdef"
         let source = ConfigSource(agent: .hermes, path: "/tmp/hermes.yaml")
         let issue = ScanIssue(source: source, severity: .warning, message: "Missing env var for GitHub: GITHUB_TOKEN")
         let result = ScanResult(
@@ -153,7 +154,13 @@ final class DashboardStateBuilderTests: XCTestCase {
                 confidence: .high,
                 reason: "command and MCP-specific argument matched"
             )],
-            probeResults: [MCPProbeResult(serverID: "github", status: .healthy, toolCount: 26, message: "tools/list succeeded")]
+            probeResults: [MCPProbeResult(
+                serverID: "github",
+                status: .healthy,
+                toolCount: 3,
+                toolNames: ["create_issue", "search_repositories", suspiciousToolName],
+                message: "tools/list succeeded"
+            )]
         )
 
         let state = DashboardStateBuilder().build(from: result)
@@ -162,12 +169,14 @@ final class DashboardStateBuilderTests: XCTestCase {
         XCTAssertEqual(detail.id, "github")
         XCTAssertEqual(detail.displayName, "GitHub")
         XCTAssertEqual(detail.connectionSummary, "stdio • npx -y @modelcontextprotocol/server-github")
-        XCTAssertEqual(detail.toolSummary, "Healthy • 26 tools")
+        XCTAssertEqual(detail.toolSummary, "Healthy • 3 tools")
+        XCTAssertEqual(detail.toolNames, ["create_issue", "search_repositories", "danger-<redacted>"])
         XCTAssertEqual(detail.sourcePath, source.path)
         XCTAssertEqual(detail.redactedEnvBindings["GITHUB_TOKEN"], "<redacted>")
         XCTAssertEqual(detail.processRows.map(\.pid), [4201])
         XCTAssertEqual(detail.issueRows.map(\.message), ["Missing env var for GitHub: GITHUB_TOKEN"])
         XCTAssertFalse(String(describing: detail).contains("fake-secret-token-1234567890"))
+        XCTAssertFalse(String(describing: detail).contains(suspiciousToolName))
     }
 
     func testServerDetailDoesNotAttachSiblingServerIssueFromSameSource() throws {

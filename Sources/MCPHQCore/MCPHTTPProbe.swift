@@ -69,10 +69,8 @@ public struct MCPHTTPProbe {
                 toolDetails: toolDetails,
                 message: "tools/list succeeded"
             )
-        } catch HTTPProbeError.timedOut {
-            return MCPProbeResult(serverID: server.id, status: .error, message: "Timed out waiting for MCP HTTP response.")
         } catch {
-            return MCPProbeResult(serverID: server.id, status: .error, message: "Probe failed: \(sanitize(error.localizedDescription))")
+            return MCPProbeResult(serverID: server.id, status: .error, message: diagnosticMessage(for: error, url: url))
         }
     }
 
@@ -96,7 +94,7 @@ public struct MCPHTTPProbe {
 
         let response = try perform(request)
         guard (200...299).contains(response.statusCode) else {
-            throw HTTPProbeError.httpStatus(response.statusCode)
+            throw HTTPProbeError.httpStatus(response.statusCode, url)
         }
 
         let nextSessionID = response.sessionID ?? sessionID
@@ -233,6 +231,35 @@ public struct MCPHTTPProbe {
         return error["message"] as? String ?? "MCP server returned an error."
     }
 
+    private func diagnosticMessage(for error: Error, url: URL) -> String {
+        if case HTTPProbeError.timedOut = error {
+            return "Timed out waiting for MCP HTTP response from \(safeURLText(url))."
+        }
+        if case HTTPProbeError.httpStatus(let status, let endpoint) = error {
+            return "HTTP MCP probe got HTTP \(status) from \(safeURLText(endpoint)). Check that the configured MCP HTTP endpoint and transport are correct."
+        }
+
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain {
+            switch URLError.Code(rawValue: nsError.code) {
+            case .cannotConnectToHost, .networkConnectionLost, .notConnectedToInternet, .cannotFindHost, .dnsLookupFailed:
+                return "HTTP MCP probe could not connect to \(safeURLText(url)). Make sure the server is running and the configured URL is reachable."
+            case .secureConnectionFailed, .serverCertificateUntrusted, .serverCertificateHasBadDate, .serverCertificateNotYetValid, .serverCertificateHasUnknownRoot:
+                return "HTTP MCP probe could not establish a secure connection to \(safeURLText(url)). Check TLS certificates or use the correct MCP endpoint URL."
+            case .timedOut:
+                return "Timed out waiting for MCP HTTP response from \(safeURLText(url))."
+            default:
+                break
+            }
+        }
+
+        return "HTTP MCP probe failed for \(safeURLText(url)): \(sanitize(error.localizedDescription))"
+    }
+
+    private func safeURLText(_ url: URL) -> String {
+        sanitize(url.absoluteString)
+    }
+
     private func sanitize(_ value: String) -> String {
         SecretRedactor.redactText(value)
     }
@@ -273,7 +300,7 @@ private struct RawHTTPResponse {
 
 private enum HTTPProbeError: LocalizedError {
     case timedOut
-    case httpStatus(Int)
+    case httpStatus(Int, URL)
     case invalidHTTPResponse
     case emptyResponse
     case invalidUTF8
@@ -284,7 +311,7 @@ private enum HTTPProbeError: LocalizedError {
         switch self {
         case .timedOut:
             return "Timed out waiting for MCP HTTP response."
-        case .httpStatus(let status):
+        case .httpStatus(let status, _):
             return "HTTP status \(status)."
         case .invalidHTTPResponse:
             return "Invalid HTTP response."

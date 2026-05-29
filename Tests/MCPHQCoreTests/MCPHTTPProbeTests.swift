@@ -155,6 +155,67 @@ final class MCPHTTPProbeTests: XCTestCase {
         XCTAssertEqual(result.toolNames, ["sse-tool"])
     }
 
+    func testProbeExplainsHTTPStatusFailuresWithRedactedURL() throws {
+        let server = try LocalMCPHTTPTestServer(scriptName: "http-error-mcp.py", body: """
+        from http.server import BaseHTTPRequestHandler, HTTPServer
+
+        class Handler(BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"
+
+            def do_POST(self):
+                payload = b"server exploded"
+                self.send_response(500)
+                self.send_header("Content-Type", "text/plain")
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+
+            def log_message(self, format, *args):
+                pass
+
+        httpd = HTTPServer(("127.0.0.1", 0), Handler)
+        print(httpd.server_port, flush=True)
+        httpd.serve_forever()
+        """)
+        defer { server.stop() }
+        let definition = ServerDefinition(
+            id: "http-error",
+            displayName: "HTTP Error",
+            transport: .streamableHTTP,
+            url: server.url.absoluteString + "?api_key=sk-test-secret-1234567890",
+            sourcePath: "/tmp/hermes.yaml"
+        )
+
+        let result = MCPHTTPProbe(timeout: 2).probe(server: definition)
+
+        XCTAssertEqual(result.status, .error)
+        XCTAssertTrue(result.message.contains("HTTP MCP probe got HTTP 500"), result.message)
+        XCTAssertTrue(result.message.contains("127.0.0.1"), result.message)
+        XCTAssertFalse(result.message.contains("sk-test-secret"), result.message)
+        XCTAssertTrue(result.message.contains("api_key=<redacted>"), result.message)
+    }
+
+    func testProbeExplainsConnectionFailuresWithTransportAndEndpoint() {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ConnectionFailingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let definition = ServerDefinition(
+            id: "offline-http",
+            displayName: "Offline HTTP",
+            transport: .http,
+            url: "http://127.0.0.1:45454/mcp?token=sk-test-secret-1234567890",
+            sourcePath: "/tmp/hermes.yaml"
+        )
+
+        let result = MCPHTTPProbe(timeout: 0.2, session: session).probe(server: definition)
+
+        XCTAssertEqual(result.status, .error)
+        XCTAssertTrue(result.message.contains("HTTP MCP probe could not connect"), result.message)
+        XCTAssertTrue(result.message.contains("127.0.0.1:45454"), result.message)
+        XCTAssertTrue(result.message.contains("configured URL is reachable"), result.message)
+        XCTAssertFalse(result.message.contains("sk-test-secret"), result.message)
+    }
+
     func testProbeSkipsStdioServers() {
         let definition = ServerDefinition(
             id: "stdio",
@@ -171,6 +232,24 @@ final class MCPHTTPProbeTests: XCTestCase {
         XCTAssertNil(result.toolCount)
         XCTAssertTrue(result.message.contains("Only HTTP probing is supported"), result.message)
     }
+}
+
+private final class ConnectionFailingURLProtocol: URLProtocol, @unchecked Sendable {
+    static let error: Error = URLError(.cannotConnectToHost)
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        true
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
+
+    override func startLoading() {
+        client?.urlProtocol(self, didFailWithError: Self.error)
+    }
+
+    override func stopLoading() {}
 }
 
 private final class LocalMCPHTTPTestServer {

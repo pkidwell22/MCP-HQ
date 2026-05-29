@@ -125,4 +125,67 @@ final class DashboardStateBuilderTests: XCTestCase {
 
         XCTAssertEqual(row.toolSummary, "Healthy • 9 tools")
     }
+
+    func testBuildsServerDetailWithProbeProcessesIssuesAndRedactedEnvironment() throws {
+        let source = ConfigSource(agent: .hermes, path: "/tmp/hermes.yaml")
+        let issue = ScanIssue(source: source, severity: .warning, message: "Missing env var for GitHub: GITHUB_TOKEN")
+        let result = ScanResult(
+            servers: [ServerDefinition(
+                id: "github",
+                displayName: "GitHub",
+                transport: .stdio,
+                command: "npx",
+                args: ["-y", "@modelcontextprotocol/server-github"],
+                envBindings: ["GITHUB_TOKEN": "fake-secret-token-1234567890"],
+                sourcePath: source.path
+            )],
+            sources: [source],
+            issues: [issue],
+            processes: [MCPProcessSnapshot(
+                pid: 4201,
+                executableName: "npx",
+                commandLine: "npx -y @modelcontextprotocol/server-github --token <redacted>",
+                matchReason: "mcp command pattern"
+            )],
+            processMatches: [ServerProcessMatch(
+                serverID: "github",
+                processID: 4201,
+                confidence: .high,
+                reason: "command and MCP-specific argument matched"
+            )],
+            probeResults: [MCPProbeResult(serverID: "github", status: .healthy, toolCount: 26, message: "tools/list succeeded")]
+        )
+
+        let state = DashboardStateBuilder().build(from: result)
+        let detail = try XCTUnwrap(state.serverDetails.first)
+
+        XCTAssertEqual(detail.id, "github")
+        XCTAssertEqual(detail.displayName, "GitHub")
+        XCTAssertEqual(detail.connectionSummary, "stdio • npx -y @modelcontextprotocol/server-github")
+        XCTAssertEqual(detail.toolSummary, "Healthy • 26 tools")
+        XCTAssertEqual(detail.sourcePath, source.path)
+        XCTAssertEqual(detail.redactedEnvBindings["GITHUB_TOKEN"], "<redacted>")
+        XCTAssertEqual(detail.processRows.map(\.pid), [4201])
+        XCTAssertEqual(detail.issueRows.map(\.message), ["Missing env var for GitHub: GITHUB_TOKEN"])
+        XCTAssertFalse(String(describing: detail).contains("fake-secret-token-1234567890"))
+    }
+
+    func testServerDetailDoesNotAttachSiblingServerIssueFromSameSource() throws {
+        let source = ConfigSource(agent: .hermes, path: "/tmp/hermes.yaml")
+        let result = ScanResult(
+            servers: [
+                ServerDefinition(id: "filesystem", displayName: "filesystem", transport: .stdio, command: "npx", sourcePath: source.path),
+                ServerDefinition(id: "github", displayName: "github", transport: .stdio, command: "npx", sourcePath: source.path),
+            ],
+            sources: [source],
+            issues: [ScanIssue(source: source, severity: .warning, message: "Missing env var for github: GITHUB_TOKEN")]
+        )
+
+        let state = DashboardStateBuilder().build(from: result)
+        let filesystemDetail = try XCTUnwrap(state.serverDetails.first { $0.id == "filesystem" })
+        let githubDetail = try XCTUnwrap(state.serverDetails.first { $0.id == "github" })
+
+        XCTAssertTrue(filesystemDetail.issueRows.isEmpty)
+        XCTAssertEqual(githubDetail.issueRows.map(\.message), ["Missing env var for github: GITHUB_TOKEN"])
+    }
 }

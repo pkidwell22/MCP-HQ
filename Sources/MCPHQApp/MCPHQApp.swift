@@ -65,6 +65,15 @@ final class DashboardViewModel: ObservableObject {
 
 struct DashboardView: View {
     @StateObject private var model = DashboardViewModel()
+    @State private var selectedServerID: String?
+
+    private var selectedServerDetail: DashboardServerDetail? {
+        if let selectedServerID,
+           let detail = model.state.serverDetails.first(where: { $0.id == selectedServerID }) {
+            return detail
+        }
+        return model.state.serverDetails.first
+    }
 
     var body: some View {
         NavigationSplitView {
@@ -139,6 +148,11 @@ struct DashboardView: View {
             }
             .padding([.horizontal, .top])
 
+            if let selectedServerDetail {
+                ServerInspectorView(detail: selectedServerDetail)
+                    .padding(.horizontal)
+            }
+
             if model.state.serverRows.isEmpty, model.state.processRows.isEmpty {
                 EmptyInventoryView()
             } else {
@@ -146,8 +160,15 @@ struct DashboardView: View {
                     if !model.state.serverRows.isEmpty {
                         Section("Configured servers") {
                             ForEach(model.state.serverRows) { row in
-                                ServerRowView(row: row)
-                                    .padding(.vertical, 6)
+                                Button {
+                                    selectedServerID = row.id
+                                } label: {
+                                    ServerRowView(row: row)
+                                        .padding(.vertical, 6)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                                .buttonStyle(.plain)
+                                .listRowBackground(selectedServerID == row.id ? Color.accentColor.opacity(0.12) : Color.clear)
                             }
                         }
                     }
@@ -229,6 +250,86 @@ struct IssueList: View {
                 .background(issue.severityLabel == "error" ? Color.red.opacity(0.12) : Color.yellow.opacity(0.14), in: RoundedRectangle(cornerRadius: 8))
             }
         }
+    }
+}
+
+struct ServerInspectorView: View {
+    let detail: DashboardServerDetail
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Inspector")
+                    .font(.headline)
+                Text(detail.displayName)
+                    .font(.subheadline.bold())
+                Text(detail.transport.rawValue)
+                    .font(.caption.bold())
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(.quaternary, in: Capsule())
+                Spacer()
+                Text(detail.toolSummary)
+                    .font(.caption.bold())
+                    .foregroundStyle(detail.toolSummary.hasPrefix("Healthy") ? .green : .secondary)
+            }
+
+            Text(detail.connectionSummary)
+                .font(.system(.caption, design: .monospaced))
+                .lineLimit(2)
+                .textSelection(.enabled)
+
+            HStack(spacing: 16) {
+                Label(detail.processSummary, systemImage: "cpu")
+                Label(detail.envSummary, systemImage: "key")
+                Label(detail.sourcePath, systemImage: "doc.text")
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+
+            if !detail.issueRows.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(detail.issueRows) { issue in
+                        Text("\(issue.severityLabel.uppercased()): \(issue.message)")
+                            .font(.caption)
+                            .foregroundStyle(issue.severityLabel == "error" ? .red : .yellow)
+                    }
+                }
+            }
+
+            if !detail.redactedEnvBindings.isEmpty {
+                DisclosureGroup("Environment") {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(detail.redactedEnvBindings.keys.sorted(), id: \.self) { key in
+                            Text("\(key)=\(detail.redactedEnvBindings[key] ?? "")")
+                                .font(.system(.caption, design: .monospaced))
+                                .textSelection(.enabled)
+                        }
+                    }
+                    .padding(.top, 4)
+                }
+                .font(.caption)
+            }
+
+            if !detail.processRows.isEmpty {
+                DisclosureGroup("Matched processes") {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(detail.processRows) { process in
+                            Text("pid \(process.pid) • \(process.commandLine)")
+                                .font(.system(.caption, design: .monospaced))
+                                .lineLimit(2)
+                                .textSelection(.enabled)
+                        }
+                    }
+                    .padding(.top, 4)
+                }
+                .font(.caption)
+            }
+        }
+        .padding(12)
+        .background(.quaternary.opacity(0.55), in: RoundedRectangle(cornerRadius: 12))
     }
 }
 

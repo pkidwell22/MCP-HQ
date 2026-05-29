@@ -151,6 +151,51 @@ public struct DashboardIssueRow: Identifiable, Equatable, Sendable {
     }
 }
 
+public struct StatusMenuSnapshot: Equatable, Sendable {
+    public let title: String
+    public let summaryText: String
+    public let detailText: String
+    public let systemImage: String
+    public let probeActionTitle: String
+    public let canRunProbes: Bool
+
+    public init(state: DashboardState, isProbing: Bool) {
+        let summary = state.summary
+        self.title = "MCP-HQ"
+        self.summaryText = [
+            Self.countText(summary.serverCount, singular: "server", plural: "servers"),
+            Self.countText(summary.processCount, singular: "process", plural: "processes"),
+        ].joined(separator: " • ")
+
+        var details = [Self.countText(summary.sourceCount, singular: "source", plural: "sources")]
+        if summary.errorCount > 0 {
+            details.append(Self.countText(summary.errorCount, singular: "error", plural: "errors"))
+        }
+        if summary.warningCount > 0 {
+            details.append(Self.countText(summary.warningCount, singular: "warning", plural: "warnings"))
+        }
+        if summary.errorCount == 0, summary.warningCount == 0 {
+            details.append("No issues")
+        }
+        self.detailText = details.joined(separator: " • ")
+
+        if summary.errorCount > 0 {
+            self.systemImage = "exclamationmark.octagon.fill"
+        } else if summary.warningCount > 0 {
+            self.systemImage = "exclamationmark.triangle.fill"
+        } else {
+            self.systemImage = "network"
+        }
+
+        self.probeActionTitle = isProbing ? "Probing…" : "Run Probes"
+        self.canRunProbes = !isProbing
+    }
+
+    private static func countText(_ count: Int, singular: String, plural: String) -> String {
+        "\(count) \(count == 1 ? singular : plural)"
+    }
+}
+
 public struct DashboardStateBuilder: Sendable {
     public init() {}
 

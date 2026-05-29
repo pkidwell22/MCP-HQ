@@ -1,12 +1,23 @@
 import SwiftUI
 import MCPHQCore
+#if os(macOS)
+import AppKit
+#endif
 
 @main
 struct MCPHQApp: App {
+    @StateObject private var model = DashboardViewModel()
+
     var body: some Scene {
-        WindowGroup("MCP-HQ") {
-            DashboardView()
+        Window("MCP-HQ", id: "dashboard") {
+            DashboardView(model: model)
                 .frame(minWidth: 840, minHeight: 560)
+        }
+
+        MenuBarExtra {
+            StatusMenuView(model: model)
+        } label: {
+            Label(model.statusMenuSnapshot.title, systemImage: model.statusMenuSnapshot.systemImage)
         }
     }
 }
@@ -21,6 +32,10 @@ final class DashboardViewModel: ObservableObject {
     private let stateBuilder: DashboardStateBuilder
     private let scanCoordinator: ScanCoordinator
 
+    var statusMenuSnapshot: StatusMenuSnapshot {
+        StatusMenuSnapshot(state: state, isProbing: isProbing)
+    }
+
     init(
         sourceProvider: DefaultConfigSourceProvider = DefaultConfigSourceProvider(),
         stateBuilder: DashboardStateBuilder = DashboardStateBuilder(),
@@ -30,6 +45,7 @@ final class DashboardViewModel: ObservableObject {
         self.stateBuilder = stateBuilder
         self.scanCoordinator = scanCoordinator
         self.state = stateBuilder.build(from: ScanResult(servers: [], sources: [], issues: []))
+        refresh()
     }
 
     func refresh() {
@@ -64,7 +80,7 @@ final class DashboardViewModel: ObservableObject {
 }
 
 struct DashboardView: View {
-    @StateObject private var model = DashboardViewModel()
+    @ObservedObject var model: DashboardViewModel
     @State private var selectedServerID: String?
 
     private var selectedServerDetail: DashboardServerDetail? {
@@ -184,6 +200,50 @@ struct DashboardView: View {
                 }
                 .listStyle(.inset)
             }
+        }
+    }
+}
+
+struct StatusMenuView: View {
+    @ObservedObject var model: DashboardViewModel
+    @Environment(\.openWindow) private var openWindow
+
+    private var snapshot: StatusMenuSnapshot { model.statusMenuSnapshot }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(snapshot.summaryText)
+                .font(.headline)
+            Text(snapshot.detailText)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Divider()
+
+            Button("Open Dashboard") {
+                openWindow(id: "dashboard")
+                #if os(macOS)
+                NSApp.activate(ignoringOtherApps: true)
+                #endif
+            }
+
+            Button("Refresh") {
+                model.refresh()
+            }
+
+            Button(snapshot.probeActionTitle) {
+                model.runProbes()
+            }
+            .disabled(!snapshot.canRunProbes)
+
+            Divider()
+
+            Button("Quit MCP-HQ") {
+                #if os(macOS)
+                NSApp.terminate(nil)
+                #endif
+            }
+            .keyboardShortcut("q", modifiers: [.command])
         }
     }
 }

@@ -79,6 +79,7 @@ public struct ConfigScanner: Sendable {
             guard FileManager.default.fileExists(atPath: source.path) else { continue }
             do {
                 let data = try Data(contentsOf: URL(fileURLWithPath: source.path))
+                try ConfigSyntaxValidator.validate(data: data, agent: source.agent)
                 let parsed: [ServerDefinition]
                 switch source.agent {
                 case .claude:

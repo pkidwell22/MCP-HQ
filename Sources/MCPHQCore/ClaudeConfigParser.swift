@@ -1,46 +1,53 @@
 import Foundation
 
+public enum ClaudeConfigParserError: Error, Equatable, LocalizedError, Sendable {
+    case missingTransportTarget(serverName: String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .missingTransportTarget(let serverName):
+            return "Claude MCP server '\(serverName)' must define either command or url."
+        }
+    }
+}
+
 public struct ClaudeConfigParser: Sendable {
     public init() {}
 
     public func parse(data: Data, sourcePath: String) throws -> [ServerDefinition] {
         let config = try JSONDecoder().decode(ClaudeMCPConfig.self, from: data)
-        return config.mcpServers
-            .keys
-            .sorted()
-            .compactMap { name in
-                guard let server = config.mcpServers[name] else { return nil }
-                if let command = server.command {
-                    return ServerDefinition(
-                        id: name,
-                        displayName: name,
-                        transport: .stdio,
-                        command: command,
-                        args: server.args ?? [],
-                        envBindings: server.env ?? [:],
-                        sourcePath: sourcePath
-                    )
-                }
-                if let url = server.url {
-                    return ServerDefinition(
-                        id: name,
-                        displayName: name,
-                        transport: .http,
-                        args: [],
-                        url: url,
-                        envBindings: server.env ?? [:],
-                        sourcePath: sourcePath
-                    )
-                }
-                return ServerDefinition(
+        var servers: [ServerDefinition] = []
+
+        for name in config.mcpServers.keys.sorted() {
+            guard let server = config.mcpServers[name] else { continue }
+            if let command = server.command, !command.isEmpty {
+                servers.append(ServerDefinition(
                     id: name,
                     displayName: name,
                     transport: .stdio,
+                    command: command,
                     args: server.args ?? [],
                     envBindings: server.env ?? [:],
                     sourcePath: sourcePath
-                )
+                ))
+                continue
             }
+            if let url = server.url, !url.isEmpty {
+                servers.append(ServerDefinition(
+                    id: name,
+                    displayName: name,
+                    transport: MCPTransport(configValue: server.transport ?? server.type),
+                    args: [],
+                    url: url,
+                    envBindings: server.env ?? [:],
+                    sourcePath: sourcePath
+                ))
+                continue
+            }
+            throw ClaudeConfigParserError.missingTransportTarget(serverName: name)
+        }
+
+        return servers
     }
 }
 
@@ -53,4 +60,6 @@ private struct ClaudeMCPServer: Decodable {
     let args: [String]?
     let env: [String: String]?
     let url: String?
+    let transport: String?
+    let type: String?
 }

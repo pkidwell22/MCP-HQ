@@ -8,7 +8,7 @@ final class ConfigScannerTests: XCTestCase {
             ConfigSource(agent: .claude, path: fixtureURL.path)
         ])
 
-        let result = try scanner.scan()
+        let result = scanner.scan()
 
         XCTAssertEqual(result.servers.count, 2)
         XCTAssertEqual(result.servers.map(\.id), ["github", "qmd"])

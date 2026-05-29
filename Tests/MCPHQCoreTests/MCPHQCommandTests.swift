@@ -80,7 +80,7 @@ final class MCPHQCommandTests: XCTestCase {
         }
         """.write(to: configURL, atomically: true, encoding: .utf8)
         let command = MCPHQCommand(processScanner: MCPProcessScanner(processProvider: {
-            [RawProcessSnapshot(pid: 4201, commandLine: "npx -y @modelcontextprotocol/server-github --token ghp_abcdefghijklmnopqrstuvwxyz123456")]
+            [RawProcessSnapshot(pid: 4201, commandLine: "npx -y @modelcontextprotocol/server-github --token ghp_ab...3456")]
         }))
 
         let result = try command.run(args: ["scan", "--json", "--source", "claude:\(configURL.path)"])
@@ -93,7 +93,33 @@ final class MCPHQCommandTests: XCTestCase {
         XCTAssertEqual(firstMatch["serverID"] as? String, "github")
         XCTAssertEqual(firstMatch["processID"] as? Int, 4201)
         XCTAssertEqual(firstMatch["confidence"] as? String, "high")
-        XCTAssertFalse(result.stdout.contains("ghp_abcdefghijklmnopqrstuvwxyz123456"))
+        XCTAssertFalse(result.stdout.contains("ghp_ab...3456"))
+    }
+
+    func testScanReportsMissingConfiguredCommandAsWarning() throws {
+        let tempDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        let configURL = tempDirectory.appendingPathComponent("claude.json")
+        try """
+        {
+          "mcpServers": {
+            "broken": {
+              "command": "definitely-not-installed-mcp"
+            }
+          }
+        }
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+
+        let result = try MCPHQCommand().run(args: ["scan", "--json", "--source", "claude:\(configURL.path)"])
+
+        XCTAssertEqual(result.exitCode, 0)
+        let data = try XCTUnwrap(result.stdout.data(using: .utf8))
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let issues = try XCTUnwrap(object["issues"] as? [[String: Any]])
+        let warning = try XCTUnwrap(issues.first)
+        XCTAssertEqual(warning["severity"] as? String, "warning")
+        XCTAssertTrue((warning["message"] as? String)?.contains("Command not found for broken: definitely-not-installed-mcp") == true)
     }
 
     func testUnknownCommandReturnsUsageError() throws {

@@ -38,7 +38,7 @@ final class DashboardViewModel: ObservableObject {
         state = stateBuilder.build(from: ScanResult(
             servers: configResult.servers,
             sources: configResult.sources,
-            issues: configResult.issues,
+            issues: configResult.issues + ServerDiagnosticChecker().issues(servers: configResult.servers, sources: configResult.sources),
             processes: processes,
             processMatches: ServerProcessMatcher().matches(servers: configResult.servers, processes: processes)
         ))

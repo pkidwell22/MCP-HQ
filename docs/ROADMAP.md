@@ -57,7 +57,7 @@ Features:
 - command availability checks
 - env var/secret checks
 - JSON/YAML parse diagnostics ✅
-- duplicate server/tool detection
+- duplicate server/tool detection ✅
 - safe MCP initialize + tools/list checks
 - GUI PATH warning checks
 - severity-ranked findings

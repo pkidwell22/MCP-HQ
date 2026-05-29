@@ -19,9 +19,10 @@ public struct ServerDiagnosticChecker {
 
     public func issues(servers: [ServerDefinition], sources: [ConfigSource]) -> [ScanIssue] {
         let sourcesByPath = Dictionary(uniqueKeysWithValues: sources.map { ($0.path, $0) })
-        return servers.flatMap { server in
+        let perServerIssues = servers.flatMap { server in
             issues(for: server, source: sourcesByPath[server.sourcePath] ?? ConfigSource(agent: .unknown, path: server.sourcePath))
         }
+        return perServerIssues + duplicateTargetIssues(servers: servers, sourcesByPath: sourcesByPath)
     }
 
     private func issues(for server: ServerDefinition, source: ConfigSource) -> [ScanIssue] {
@@ -83,6 +84,47 @@ public struct ServerDiagnosticChecker {
         return sensitiveParts.contains { normalized.contains($0) }
     }
 
+    private func duplicateTargetIssues(servers: [ServerDefinition], sourcesByPath: [String: ConfigSource]) -> [ScanIssue] {
+        let grouped = Dictionary(grouping: servers.compactMap { server -> DuplicateTarget? in
+            guard let target = duplicateTarget(for: server) else { return nil }
+            return DuplicateTarget(server: server, key: target.key, display: target.display)
+        }, by: \.key)
+
+        return grouped.values
+            .filter { $0.count > 1 }
+            .sorted { $0[0].display < $1[0].display }
+            .map { duplicates in
+                let first = duplicates[0]
+                let names = duplicates.map { $0.server.displayName }.joinedForIssueList()
+                let source = sourcesByPath[first.server.sourcePath] ?? ConfigSource(agent: .unknown, path: first.server.sourcePath)
+                return ScanIssue(
+                    source: source,
+                    severity: .warning,
+                    message: "Duplicate MCP server target: \(names) both point to \(first.display). Rename/remove one entry to avoid duplicate tools."
+                )
+            }
+    }
+
+    private func duplicateTarget(for server: ServerDefinition) -> (key: String, display: String)? {
+        switch server.transport {
+        case .stdio:
+            guard let command = server.command?.trimmingCharacters(in: .whitespacesAndNewlines), !command.isEmpty else { return nil }
+            let args = server.args.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+            let display = ([command] + args).joined(separator: " ")
+            let key = (["stdio", command] + args).joined(separator: "\u{0}")
+            return (key, "stdio \(display)")
+        case .http, .sse, .streamableHTTP:
+            guard let url = server.url?.trimmingCharacters(in: .whitespacesAndNewlines), !url.isEmpty else { return nil }
+            return ("\(server.transport.rawValue)\u{0}\(url)", "\(server.transport.rawValue) \(url)")
+        }
+    }
+
+    private struct DuplicateTarget {
+        let server: ServerDefinition
+        let key: String
+        let display: String
+    }
+
     private static func defaultCommandExists(command: String, environment: [String: String]) -> Bool {
         let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
@@ -108,4 +150,19 @@ public struct ServerDiagnosticChecker {
     }
 
     private static let defaultSearchPath = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+}
+
+private extension Array where Element == String {
+    func joinedForIssueList() -> String {
+        switch count {
+        case 0:
+            return ""
+        case 1:
+            return self[0]
+        case 2:
+            return "\(self[0]) and \(self[1])"
+        default:
+            return "\(dropLast().joined(separator: ", ")), and \(last ?? "")"
+        }
+    }
 }

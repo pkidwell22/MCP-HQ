@@ -137,5 +137,84 @@ final class ServerDiagnosticCheckerTests: XCTestCase {
 
         XCTAssertEqual(checker.issues(servers: [server], sources: [source]), [])
     }
+
+    func testDuplicateStdioServerTargetsProduceWarning() {
+        let source = ConfigSource(agent: .claude, path: "/tmp/claude.json")
+        let original = ServerDefinition(
+            id: "github",
+            displayName: "github",
+            transport: .stdio,
+            command: "npx",
+            args: ["-y", "@modelcontextprotocol/server-github"],
+            sourcePath: source.path
+        )
+        let duplicate = ServerDefinition(
+            id: "github-copy",
+            displayName: "github-copy",
+            transport: .stdio,
+            command: "npx",
+            args: ["-y", "@modelcontextprotocol/server-github"],
+            sourcePath: source.path
+        )
+        let checker = ServerDiagnosticChecker(commandExists: { _, _ in true })
+
+        let issues = checker.issues(servers: [original, duplicate], sources: [source])
+
+        XCTAssertEqual(issues, [ScanIssue(
+            source: source,
+            severity: .warning,
+            message: "Duplicate MCP server target: github and github-copy both point to stdio npx -y @modelcontextprotocol/server-github. Rename/remove one entry to avoid duplicate tools."
+        )])
+    }
+
+    func testDistinctStdioArgumentsDoNotProduceDuplicateWarning() {
+        let source = ConfigSource(agent: .claude, path: "/tmp/claude.json")
+        let github = ServerDefinition(
+            id: "github",
+            displayName: "github",
+            transport: .stdio,
+            command: "npx",
+            args: ["-y", "@modelcontextprotocol/server-github"],
+            sourcePath: source.path
+        )
+        let memory = ServerDefinition(
+            id: "memory",
+            displayName: "memory",
+            transport: .stdio,
+            command: "npx",
+            args: ["-y", "@modelcontextprotocol/server-memory"],
+            sourcePath: source.path
+        )
+        let checker = ServerDiagnosticChecker(commandExists: { _, _ in true })
+
+        XCTAssertEqual(checker.issues(servers: [github, memory], sources: [source]), [])
+    }
+
+    func testDuplicateRemoteServerURLsProduceWarning() {
+        let source = ConfigSource(agent: .gemini, path: "/tmp/gemini.json")
+        let docs = ServerDefinition(
+            id: "docs",
+            displayName: "docs",
+            transport: .sse,
+            url: "http://localhost:8181/sse",
+            sourcePath: source.path
+        )
+        let docsCopy = ServerDefinition(
+            id: "docs-copy",
+            displayName: "docs-copy",
+            transport: .sse,
+            url: "http://localhost:8181/sse",
+            sourcePath: source.path
+        )
+        let checker = ServerDiagnosticChecker(commandExists: { _, _ in true })
+
+        let issues = checker.issues(servers: [docs, docsCopy], sources: [source])
+
+        XCTAssertEqual(issues, [ScanIssue(
+            source: source,
+            severity: .warning,
+            message: "Duplicate MCP server target: docs and docs-copy both point to sse http://localhost:8181/sse. Rename/remove one entry to avoid duplicate tools."
+        )])
+    }
 }
 

@@ -59,17 +59,11 @@ public struct MCPHQCommand: Sendable {
         }
 
         let sources = explicitSources.isEmpty ? defaultSourceProvider.sources() : explicitSources
-        let configResult = ConfigScanner(configSources: sources).scan()
-        let processes = processScanner.scan()
-        let probeResults = shouldProbe ? liveProbeProvider(configResult.servers) : probeProvider(configResult.servers)
-        let result = ScanResult(
-            servers: configResult.servers,
-            sources: configResult.sources,
-            issues: configResult.issues + ServerDiagnosticChecker().issues(servers: configResult.servers, sources: configResult.sources),
-            processes: processes,
-            processMatches: ServerProcessMatcher().matches(servers: configResult.servers, processes: processes),
-            probeResults: probeResults
-        )
+        let selectedProbeProvider = shouldProbe ? liveProbeProvider : probeProvider
+        let result = ScanCoordinator(
+            processScanner: processScanner,
+            probeProvider: selectedProbeProvider
+        ).scan(sources: sources, includeProbes: true)
         let stdout = outputJSON ? try formatter.formatJSON(result) : formatter.formatText(result)
         return MCPHQCommandResult(exitCode: 0, stdout: stdout, stderr: "")
     }

@@ -15,34 +15,44 @@ struct MCPHQApp: App {
 final class DashboardViewModel: ObservableObject {
     @Published private(set) var state: DashboardState
     @Published private(set) var lastRefreshedText: String = "Not refreshed yet"
+    @Published private(set) var isProbing: Bool = false
 
     private let sourceProvider: DefaultConfigSourceProvider
     private let stateBuilder: DashboardStateBuilder
-    private let processScanner: MCPProcessScanner
+    private let scanCoordinator: ScanCoordinator
 
     init(
         sourceProvider: DefaultConfigSourceProvider = DefaultConfigSourceProvider(),
         stateBuilder: DashboardStateBuilder = DashboardStateBuilder(),
-        processScanner: MCPProcessScanner = MCPProcessScanner()
+        scanCoordinator: ScanCoordinator = ScanCoordinator()
     ) {
         self.sourceProvider = sourceProvider
         self.stateBuilder = stateBuilder
-        self.processScanner = processScanner
+        self.scanCoordinator = scanCoordinator
         self.state = stateBuilder.build(from: ScanResult(servers: [], sources: [], issues: []))
     }
 
     func refresh() {
-        let scanner = ConfigScanner(configSources: sourceProvider.sources())
-        let configResult = scanner.scan()
-        let processes = processScanner.scan()
-        state = stateBuilder.build(from: ScanResult(
-            servers: configResult.servers,
-            sources: configResult.sources,
-            issues: configResult.issues + ServerDiagnosticChecker().issues(servers: configResult.servers, sources: configResult.sources),
-            processes: processes,
-            processMatches: ServerProcessMatcher().matches(servers: configResult.servers, processes: processes)
-        ))
+        let result = scanCoordinator.scan(sources: sourceProvider.sources(), includeProbes: false)
+        state = stateBuilder.build(from: result)
         lastRefreshedText = Self.relativeRefreshText(date: Date())
+    }
+
+    func runProbes() {
+        guard !isProbing else { return }
+        isProbing = true
+        let sources = sourceProvider.sources()
+        let scanCoordinator = scanCoordinator
+        let stateBuilder = stateBuilder
+        Task.detached(priority: .userInitiated) {
+            let result = scanCoordinator.scan(sources: sources, includeProbes: true)
+            let nextState = stateBuilder.build(from: result)
+            await MainActor.run {
+                self.state = nextState
+                self.lastRefreshedText = Self.relativeRefreshText(date: Date())
+                self.isProbing = false
+            }
+        }
     }
 
     private static func relativeRefreshText(date: Date) -> String {
@@ -64,7 +74,12 @@ struct DashboardView: View {
         }
         .navigationTitle("MCP-HQ")
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
+            ToolbarItemGroup(placement: .primaryAction) {
+                Button(model.isProbing ? "Probing…" : "Run Probes") {
+                    model.runProbes()
+                }
+                .disabled(model.isProbing)
+
                 Button("Refresh") {
                     model.refresh()
                 }
@@ -114,6 +129,10 @@ struct DashboardView: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
+                Button(model.isProbing ? "Probing…" : "Run Probes") {
+                    model.runProbes()
+                }
+                .disabled(model.isProbing)
                 Button("Refresh") {
                     model.refresh()
                 }

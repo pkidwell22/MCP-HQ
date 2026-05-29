@@ -5,8 +5,247 @@ import MCPHQCore
 struct MCPHQApp: App {
     var body: some Scene {
         WindowGroup("MCP-HQ") {
-            Text("MCP-HQ")
-                .frame(minWidth: 480, minHeight: 320)
+            DashboardView()
+                .frame(minWidth: 840, minHeight: 560)
         }
+    }
+}
+
+@MainActor
+final class DashboardViewModel: ObservableObject {
+    @Published private(set) var state: DashboardState
+    @Published private(set) var lastRefreshedText: String = "Not refreshed yet"
+
+    private let sourceProvider: DefaultConfigSourceProvider
+    private let stateBuilder: DashboardStateBuilder
+
+    init(
+        sourceProvider: DefaultConfigSourceProvider = DefaultConfigSourceProvider(),
+        stateBuilder: DashboardStateBuilder = DashboardStateBuilder()
+    ) {
+        self.sourceProvider = sourceProvider
+        self.stateBuilder = stateBuilder
+        self.state = stateBuilder.build(from: ScanResult(servers: [], sources: [], issues: []))
+    }
+
+    func refresh() {
+        let scanner = ConfigScanner(configSources: sourceProvider.sources())
+        state = stateBuilder.build(from: scanner.scan())
+        lastRefreshedText = Self.relativeRefreshText(date: Date())
+    }
+
+    private static func relativeRefreshText(date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .none
+        formatter.timeStyle = .medium
+        return "Last refreshed at \(formatter.string(from: date))"
+    }
+}
+
+struct DashboardView: View {
+    @StateObject private var model = DashboardViewModel()
+
+    var body: some View {
+        NavigationSplitView {
+            sidebar
+        } detail: {
+            detail
+        }
+        .navigationTitle("MCP-HQ")
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button("Refresh") {
+                    model.refresh()
+                }
+                .keyboardShortcut("r", modifiers: [.command])
+            }
+        }
+        .task {
+            model.refresh()
+        }
+    }
+
+    private var sidebar: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("MCP-HQ")
+                    .font(.largeTitle.bold())
+                Text("Native control center for local MCP servers")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.top, 8)
+
+            SummaryGrid(summary: model.state.summary)
+
+            if !model.state.issueRows.isEmpty {
+                IssueList(issueRows: model.state.issueRows)
+            }
+
+            Spacer()
+
+            Text(model.lastRefreshedText)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding()
+        .frame(minWidth: 280)
+    }
+
+    private var detail: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Inventory")
+                        .font(.title2.bold())
+                    Text(model.state.summary.statusText)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button("Refresh") {
+                    model.refresh()
+                }
+            }
+            .padding([.horizontal, .top])
+
+            if model.state.serverRows.isEmpty {
+                EmptyInventoryView()
+            } else {
+                List(model.state.serverRows) { row in
+                    ServerRowView(row: row)
+                        .padding(.vertical, 6)
+                }
+                .listStyle(.inset)
+            }
+        }
+    }
+}
+
+struct SummaryGrid: View {
+    let summary: DashboardSummary
+
+    var body: some View {
+        Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 12) {
+            GridRow {
+                SummaryCard(title: "Servers", value: "\(summary.serverCount)")
+                SummaryCard(title: "Sources", value: "\(summary.sourceCount)")
+            }
+            GridRow {
+                SummaryCard(title: "Warnings", value: "\(summary.warningCount)")
+                SummaryCard(title: "Errors", value: "\(summary.errorCount)")
+            }
+        }
+    }
+}
+
+struct SummaryCard: View {
+    let title: String
+    let value: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(value)
+                .font(.title.bold())
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding()
+        .background(.quaternary, in: RoundedRectangle(cornerRadius: 12))
+    }
+}
+
+struct IssueList: View {
+    let issueRows: [DashboardIssueRow]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Issues")
+                .font(.headline)
+            ForEach(issueRows) { issue in
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("\(issue.severityLabel.uppercased()) • \(issue.agentName)")
+                        .font(.caption.bold())
+                    Text(issue.message)
+                        .font(.caption)
+                    Text(issue.sourcePath)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                .padding(8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(issue.severityLabel == "error" ? Color.red.opacity(0.12) : Color.yellow.opacity(0.14), in: RoundedRectangle(cornerRadius: 8))
+            }
+        }
+    }
+}
+
+struct ServerRowView: View {
+    let row: DashboardServerRow
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(row.displayName)
+                    .font(.headline)
+                Text(row.transport.rawValue)
+                    .font(.caption.bold())
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(.quaternary, in: Capsule())
+                Spacer()
+                Text(row.envSummary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Text(row.connectionSummary)
+                .font(.system(.subheadline, design: .monospaced))
+                .textSelection(.enabled)
+
+            Text(row.sourcePath)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .textSelection(.enabled)
+
+            if !row.redactedEnvBindings.isEmpty {
+                DisclosureGroup("Environment") {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(row.redactedEnvBindings.keys.sorted(), id: \.self) { key in
+                            Text("\(key)=\(row.redactedEnvBindings[key] ?? "")")
+                                .font(.system(.caption, design: .monospaced))
+                                .textSelection(.enabled)
+                        }
+                    }
+                    .padding(.top, 4)
+                }
+                .font(.caption)
+            }
+        }
+    }
+}
+
+struct EmptyInventoryView: View {
+    var body: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "square.stack.3d.up.slash")
+                .font(.system(size: 48))
+                .foregroundStyle(.secondary)
+            Text("No MCP servers found yet")
+                .font(.title3.bold())
+            Text("MCP-HQ scans known macOS config paths for Claude, Gemini, Hermes, Cursor, Windsurf, Continue, and Goose. Add an MCP server in one of those apps, then refresh.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 520)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding()
     }
 }

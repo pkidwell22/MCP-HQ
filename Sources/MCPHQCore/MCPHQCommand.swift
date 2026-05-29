@@ -5,17 +5,20 @@ public struct MCPHQCommand: Sendable {
     private let formatter: ScanOutputFormatter
     private let processScanner: MCPProcessScanner
     private let probeProvider: @Sendable ([ServerDefinition]) -> [MCPProbeResult]
+    private let liveProbeProvider: @Sendable ([ServerDefinition]) -> [MCPProbeResult]
 
     public init(
         defaultSourceProvider: DefaultConfigSourceProvider = DefaultConfigSourceProvider(),
         formatter: ScanOutputFormatter = ScanOutputFormatter(),
         processScanner: MCPProcessScanner = MCPProcessScanner(),
-        probeProvider: @escaping @Sendable ([ServerDefinition]) -> [MCPProbeResult] = { _ in [] }
+        probeProvider: @escaping @Sendable ([ServerDefinition]) -> [MCPProbeResult] = { _ in [] },
+        liveProbeProvider: @escaping @Sendable ([ServerDefinition]) -> [MCPProbeResult] = { MCPStdioProbe().probe(servers: $0) }
     ) {
         self.defaultSourceProvider = defaultSourceProvider
         self.formatter = formatter
         self.processScanner = processScanner
         self.probeProvider = probeProvider
+        self.liveProbeProvider = liveProbeProvider
     }
 
     public func run(args: [String]) throws -> MCPHQCommandResult {
@@ -28,6 +31,7 @@ public struct MCPHQCommand: Sendable {
 
     private func runScan(args: [String]) throws -> MCPHQCommandResult {
         var outputJSON = false
+        var shouldProbe = false
         var explicitSources: [ConfigSource] = []
         var index = 0
 
@@ -36,6 +40,9 @@ public struct MCPHQCommand: Sendable {
             switch argument {
             case "--json":
                 outputJSON = true
+                index += 1
+            case "--probe":
+                shouldProbe = true
                 index += 1
             case "--source":
                 guard index + 1 < args.count else {
@@ -54,7 +61,7 @@ public struct MCPHQCommand: Sendable {
         let sources = explicitSources.isEmpty ? defaultSourceProvider.sources() : explicitSources
         let configResult = ConfigScanner(configSources: sources).scan()
         let processes = processScanner.scan()
-        let probeResults = probeProvider(configResult.servers)
+        let probeResults = shouldProbe ? liveProbeProvider(configResult.servers) : probeProvider(configResult.servers)
         let result = ScanResult(
             servers: configResult.servers,
             sources: configResult.sources,
@@ -79,11 +86,12 @@ public struct MCPHQCommand: Sendable {
     private func usage() -> String {
         """
         Usage:
-          mcphq scan [--json] [--source agent:/path/to/config]
+          mcphq scan [--json] [--probe] [--source agent:/path/to/config]
 
         Examples:
           mcphq scan
           mcphq scan --json
+          mcphq scan --probe
           mcphq scan --source claude:/Users/me/.config/claude.json
         """
     }

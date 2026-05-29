@@ -181,6 +181,35 @@ final class MCPHQCommandTests: XCTestCase {
         XCTAssertEqual(probes.first?["toolCount"] as? Int, 9)
     }
 
+    func testScanProbeFlagUsesLiveProbeProvider() throws {
+        let tempDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        let configURL = tempDirectory.appendingPathComponent("claude.json")
+        try """
+        {
+          "mcpServers": {
+            "memory": {
+              "command": "npx",
+              "args": ["-y", "@modelcontextprotocol/server-memory"]
+            }
+          }
+        }
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+        let command = MCPHQCommand(liveProbeProvider: { servers in
+            servers.map { MCPProbeResult(serverID: $0.id, status: .healthy, toolCount: 2, message: "tools/list succeeded") }
+        })
+
+        let result = try command.run(args: ["scan", "--json", "--probe", "--source", "claude:\(configURL.path)"])
+
+        XCTAssertEqual(result.exitCode, 0)
+        let data = try XCTUnwrap(result.stdout.data(using: .utf8))
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let probes = try XCTUnwrap(object["probeResults"] as? [[String: Any]])
+        XCTAssertEqual(probes.first?["serverID"] as? String, "memory")
+        XCTAssertEqual(probes.first?["toolCount"] as? Int, 2)
+    }
+
     func testUnknownCommandReturnsUsageError() throws {
         let result = try MCPHQCommand().run(args: ["bogus"])
 

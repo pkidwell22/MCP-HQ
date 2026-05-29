@@ -73,4 +73,22 @@ public enum SecretRedactor {
         let looksTokenLike = trimmed.count >= 20 && hasLetters && hasDigits
         return looksTokenLike ? "<redacted>" : value
     }
+
+    public static func redactText(_ value: String) -> String {
+        let patterns = [
+            #"ghp_[A-Za-z0-9_]+"#,
+            #"github_pat_[A-Za-z0-9_]+"#,
+            #"sk-[A-Za-z0-9_-]+"#,
+            #"xox[abp]-[A-Za-z0-9-]+"#,
+            #"(?i)(token|api[_-]?key|password|secret|authorization|auth)(\s*[=:]\s*)([^\s,;]+)"#
+        ]
+        return patterns.reduce(value) { current, pattern in
+            guard let regex = try? NSRegularExpression(pattern: pattern) else { return current }
+            let range = NSRange(current.startIndex..<current.endIndex, in: current)
+            if pattern.hasPrefix("(?i)") {
+                return regex.stringByReplacingMatches(in: current, range: range, withTemplate: "$1$2<redacted>")
+            }
+            return regex.stringByReplacingMatches(in: current, range: range, withTemplate: "<redacted>")
+        }
+    }
 }

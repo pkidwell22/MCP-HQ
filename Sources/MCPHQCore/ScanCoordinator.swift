@@ -6,7 +6,7 @@ public struct ScanCoordinator: Sendable {
 
     public init(
         processScanner: MCPProcessScanner = MCPProcessScanner(),
-        probeProvider: @escaping @Sendable ([ServerDefinition]) -> [MCPProbeResult] = { MCPStdioProbe().probe(servers: $0) }
+        probeProvider: @escaping @Sendable ([ServerDefinition]) -> [MCPProbeResult] = { MCPLiveProbe().probe(servers: $0) }
     ) {
         self.processScanner = processScanner
         self.probeProvider = probeProvider

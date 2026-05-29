@@ -12,7 +12,7 @@ public struct MCPHQCommand: Sendable {
         formatter: ScanOutputFormatter = ScanOutputFormatter(),
         processScanner: MCPProcessScanner = MCPProcessScanner(),
         probeProvider: @escaping @Sendable ([ServerDefinition]) -> [MCPProbeResult] = { _ in [] },
-        liveProbeProvider: @escaping @Sendable ([ServerDefinition]) -> [MCPProbeResult] = { MCPStdioProbe().probe(servers: $0) }
+        liveProbeProvider: @escaping @Sendable ([ServerDefinition]) -> [MCPProbeResult] = { MCPLiveProbe().probe(servers: $0) }
     ) {
         self.defaultSourceProvider = defaultSourceProvider
         self.formatter = formatter

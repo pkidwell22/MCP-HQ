@@ -109,8 +109,9 @@ public struct MCPProcessScanner: Sendable {
             }
             if let equalsIndex = token.firstIndex(of: "=") {
                 let key = token[..<equalsIndex].lowercased()
-                let sensitiveKeyParts = ["token", "api_key", "apikey", "secret", "password", "authorization", "auth"]
-                if sensitiveKeyParts.contains(where: { key.contains($0) }) {
+                let normalizedKey = key.replacingOccurrences(of: "-", with: "_")
+                let sensitiveKeyParts = ["token", "api_key", "apikey", "key", "secret", "password", "authorization", "auth"]
+                if sensitiveKeyParts.contains(where: { normalizedKey.contains($0) }) {
                     tokens[index] = String(token[..<token.index(after: equalsIndex)]) + "<redacted>"
                 } else {
                     tokens[index] = SecretRedactor.redactIfSensitive(token)

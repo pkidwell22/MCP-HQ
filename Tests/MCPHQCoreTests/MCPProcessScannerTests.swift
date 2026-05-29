@@ -37,4 +37,22 @@ final class MCPProcessScannerTests: XCTestCase {
             RawProcessSnapshot(pid: 7777, commandLine: "/usr/libexec/trustd"),
         ])
     }
+
+    func testScannerRedactsEqualsFormSensitiveArgumentsEvenWhenValuesLookNonTokenLike() {
+        let scanner = MCPProcessScanner(processProvider: {
+            [
+                RawProcessSnapshot(
+                    pid: 201,
+                    commandLine: "npx mcp-server-example --api-key=shortsecret --key=localonly AUTH_TOKEN=lettersOnlySecret"
+                ),
+            ]
+        })
+
+        let process = scanner.scan().first
+
+        XCTAssertEqual(process?.commandLine, "npx mcp-server-example --api-key=<redacted> --key=<redacted> AUTH_TOKEN=<redacted>")
+        XCTAssertFalse(process?.commandLine.contains("shortsecret") == true)
+        XCTAssertFalse(process?.commandLine.contains("localonly") == true)
+        XCTAssertFalse(process?.commandLine.contains("lettersOnlySecret") == true)
+    }
 }

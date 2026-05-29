@@ -38,7 +38,13 @@ final class DashboardStateBuilderTests: XCTestCase {
                     commandLine: "npx -y @modelcontextprotocol/server-github --token <redacted>",
                     matchReason: "mcp command pattern"
                 )
-            ]
+            ],
+            processMatches: [ServerProcessMatch(
+                serverID: "github",
+                processID: 1201,
+                confidence: .high,
+                reason: "command and MCP-specific argument matched"
+            )]
         )
 
         let state = DashboardStateBuilder().build(from: result)
@@ -54,6 +60,7 @@ final class DashboardStateBuilderTests: XCTestCase {
         XCTAssertEqual(state.serverRows.map(\.displayName), ["Docs", "GitHub"])
         XCTAssertEqual(state.serverRows[0].connectionSummary, "sse • http://localhost:8181/mcp")
         XCTAssertEqual(state.serverRows[1].connectionSummary, "stdio • npx -y @modelcontextprotocol/server-github")
+        XCTAssertEqual(state.serverRows[1].processSummary, "Matched pid 1201 • high")
         XCTAssertEqual(state.serverRows[1].envSummary, "2 env vars")
         XCTAssertEqual(state.serverRows[1].redactedEnvBindings["GITHUB_TOKEN"], "<redacted>")
         XCTAssertEqual(state.serverRows[1].redactedEnvBindings["SAFE_REFERENCE"], "${GITHUB_TOKEN}")

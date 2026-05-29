@@ -39,6 +39,7 @@ public struct DashboardServerRow: Identifiable, Equatable, Sendable {
     public let displayName: String
     public let transport: MCPTransport
     public let connectionSummary: String
+    public let processSummary: String
     public let envSummary: String
     public let redactedEnvBindings: [String: String]
     public let sourcePath: String
@@ -48,6 +49,7 @@ public struct DashboardServerRow: Identifiable, Equatable, Sendable {
         displayName: String,
         transport: MCPTransport,
         connectionSummary: String,
+        processSummary: String = "No running process matched",
         envSummary: String,
         redactedEnvBindings: [String: String],
         sourcePath: String
@@ -56,6 +58,7 @@ public struct DashboardServerRow: Identifiable, Equatable, Sendable {
         self.displayName = displayName
         self.transport = transport
         self.connectionSummary = connectionSummary
+        self.processSummary = processSummary
         self.envSummary = envSummary
         self.redactedEnvBindings = redactedEnvBindings
         self.sourcePath = sourcePath
@@ -116,8 +119,9 @@ public struct DashboardStateBuilder: Sendable {
             )
         )
 
+        let matchesByServer = Dictionary(grouping: result.processMatches, by: \.serverID)
         let serverRows = result.servers
-            .map(makeServerRow)
+            .map { makeServerRow($0, matches: matchesByServer[$0.id] ?? []) }
             .sorted { lhs, rhs in
                 lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
             }
@@ -139,12 +143,13 @@ public struct DashboardStateBuilder: Sendable {
         return DashboardState(summary: summary, serverRows: serverRows, processRows: processRows, issueRows: issueRows)
     }
 
-    private func makeServerRow(_ server: ServerDefinition) -> DashboardServerRow {
+    private func makeServerRow(_ server: ServerDefinition, matches: [ServerProcessMatch]) -> DashboardServerRow {
         DashboardServerRow(
             id: server.id,
             displayName: server.displayName,
             transport: server.transport,
             connectionSummary: connectionSummary(for: server),
+            processSummary: processSummary(for: matches),
             envSummary: envSummary(for: server.envBindings),
             redactedEnvBindings: server.redactedEnvBindings,
             sourcePath: server.sourcePath
@@ -181,6 +186,23 @@ public struct DashboardStateBuilder: Sendable {
             return "1 env var"
         default:
             return "\(envBindings.count) env vars"
+        }
+    }
+
+    private func processSummary(for matches: [ServerProcessMatch]) -> String {
+        let sortedMatches = matches.sorted { lhs, rhs in
+            if lhs.confidence.rawValue != rhs.confidence.rawValue { return lhs.confidence.rawValue < rhs.confidence.rawValue }
+            return lhs.processID < rhs.processID
+        }
+        switch sortedMatches.count {
+        case 0:
+            return "No running process matched"
+        case 1:
+            let match = sortedMatches[0]
+            return "Matched pid \(match.processID) • \(match.confidence.rawValue)"
+        default:
+            let pids = sortedMatches.map { String($0.processID) }.joined(separator: ", ")
+            return "Matched pids \(pids)"
         }
     }
 

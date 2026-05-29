@@ -50,11 +50,13 @@ public struct MCPHQCommand: Sendable {
 
         let sources = explicitSources.isEmpty ? defaultSourceProvider.sources() : explicitSources
         let configResult = ConfigScanner(configSources: sources).scan()
+        let processes = processScanner.scan()
         let result = ScanResult(
             servers: configResult.servers,
             sources: configResult.sources,
             issues: configResult.issues,
-            processes: processScanner.scan()
+            processes: processes,
+            processMatches: ServerProcessMatcher().matches(servers: configResult.servers, processes: processes)
         )
         let stdout = outputJSON ? try formatter.formatJSON(result) : formatter.formatText(result)
         return MCPHQCommandResult(exitCode: 0, stdout: stdout, stderr: "")

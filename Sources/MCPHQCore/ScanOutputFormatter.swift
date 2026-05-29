@@ -45,6 +45,17 @@ public struct ScanOutputFormatter: Sendable {
             }
         }
 
+        if !result.processMatches.isEmpty {
+            lines.append("")
+            lines.append("Process matches:")
+            for match in result.processMatches.sorted(by: { lhs, rhs in
+                if lhs.serverID != rhs.serverID { return lhs.serverID < rhs.serverID }
+                return lhs.processID < rhs.processID
+            }) {
+                lines.append("  \(match.serverID) -> pid \(match.processID) (\(match.confidence.rawValue)): \(match.reason)")
+            }
+        }
+
         if !result.issues.isEmpty {
             lines.append("")
             lines.append("Issues:")
@@ -77,12 +88,14 @@ private struct SafeScanResult: Codable {
     let sources: [ConfigSource]
     let issues: [ScanIssue]
     let processes: [MCPProcessSnapshot]
+    let processMatches: [ServerProcessMatch]
 
     init(result: ScanResult) {
         self.servers = result.servers.map(SafeServerDefinition.init(server:))
         self.sources = result.sources
         self.issues = result.issues
         self.processes = result.processes
+        self.processMatches = result.processMatches
     }
 }
 

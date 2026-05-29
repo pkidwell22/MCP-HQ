@@ -12,7 +12,7 @@ final class ScanOutputFormatterTests: XCTestCase {
                     command: "mcp-server-github",
                     args: ["--verbose"],
                     envBindings: [
-                        "GITHUB_TOKEN": "ghp_abcdefghijklmnopqrstuvwxyz123456",
+                        "GITHUB_TOKEN": "ghp_ab...3456",
                         "SAFE_REFERENCE": "${SAFE_REFERENCE}",
                     ],
                     sourcePath: "/tmp/claude.json"
@@ -36,6 +36,12 @@ final class ScanOutputFormatterTests: XCTestCase {
                 executableName: "npx",
                 commandLine: "npx -y @modelcontextprotocol/server-github --token <redacted>",
                 matchReason: "mcp command pattern"
+            )],
+            processMatches: [ServerProcessMatch(
+                serverID: "github",
+                processID: 1201,
+                confidence: .high,
+                reason: "command and MCP-specific argument matched"
             )]
         )
 
@@ -56,6 +62,8 @@ final class ScanOutputFormatterTests: XCTestCase {
         XCTAssertTrue(output.contains("url: http://localhost:8181/mcp"))
         XCTAssertTrue(output.contains("Running processes:"))
         XCTAssertTrue(output.contains("1201 npx: npx -y @modelcontextprotocol/server-github --token <redacted>"))
+        XCTAssertTrue(output.contains("Process matches:"))
+        XCTAssertTrue(output.contains("github -> pid 1201 (high): command and MCP-specific argument matched"))
         XCTAssertTrue(output.contains("error gemini /tmp/bad.json: bad JSON"))
         XCTAssertFalse(output.contains("ghp_ab...3456"))
     }
@@ -84,6 +92,7 @@ final class ScanOutputFormatterTests: XCTestCase {
         XCTAssertEqual(env["GITHUB_TOKEN"], "<redacted>")
         XCTAssertNotNil(object?["sources"])
         XCTAssertNotNil(object?["issues"])
-        XCTAssertFalse(output.contains("ghp_abcdefghijklmnopqrstuvwxyz123456"))
+        XCTAssertNotNil(object?["processMatches"])
+        XCTAssertFalse(output.contains("ghp_ab...3456"))
     }
 }

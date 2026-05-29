@@ -64,6 +64,38 @@ final class MCPHQCommandTests: XCTestCase {
         XCTAssertTrue(result.stdout.contains("error claude \(configURL.path):"))
     }
 
+    func testScanCorrelatesConfiguredServersWithRunningProcesses() throws {
+        let tempDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        let configURL = tempDirectory.appendingPathComponent("claude.json")
+        try """
+        {
+          "mcpServers": {
+            "github": {
+              "command": "npx",
+              "args": ["-y", "@modelcontextprotocol/server-github"]
+            }
+          }
+        }
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+        let command = MCPHQCommand(processScanner: MCPProcessScanner(processProvider: {
+            [RawProcessSnapshot(pid: 4201, commandLine: "npx -y @modelcontextprotocol/server-github --token ghp_abcdefghijklmnopqrstuvwxyz123456")]
+        }))
+
+        let result = try command.run(args: ["scan", "--json", "--source", "claude:\(configURL.path)"])
+
+        XCTAssertEqual(result.exitCode, 0)
+        let data = try XCTUnwrap(result.stdout.data(using: .utf8))
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let matches = try XCTUnwrap(object["processMatches"] as? [[String: Any]])
+        let firstMatch = try XCTUnwrap(matches.first)
+        XCTAssertEqual(firstMatch["serverID"] as? String, "github")
+        XCTAssertEqual(firstMatch["processID"] as? Int, 4201)
+        XCTAssertEqual(firstMatch["confidence"] as? String, "high")
+        XCTAssertFalse(result.stdout.contains("ghp_abcdefghijklmnopqrstuvwxyz123456"))
+    }
+
     func testUnknownCommandReturnsUsageError() throws {
         let result = try MCPHQCommand().run(args: ["bogus"])
 

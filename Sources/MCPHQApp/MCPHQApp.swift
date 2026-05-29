@@ -34,11 +34,13 @@ final class DashboardViewModel: ObservableObject {
     func refresh() {
         let scanner = ConfigScanner(configSources: sourceProvider.sources())
         let configResult = scanner.scan()
+        let processes = processScanner.scan()
         state = stateBuilder.build(from: ScanResult(
             servers: configResult.servers,
             sources: configResult.sources,
             issues: configResult.issues,
-            processes: processScanner.scan()
+            processes: processes,
+            processMatches: ServerProcessMatcher().matches(servers: configResult.servers, processes: processes)
         ))
         lastRefreshedText = Self.relativeRefreshText(date: Date())
     }
@@ -233,6 +235,10 @@ struct ServerRowView: View {
             Text(row.connectionSummary)
                 .font(.system(.subheadline, design: .monospaced))
                 .textSelection(.enabled)
+
+            Text(row.processSummary)
+                .font(.caption)
+                .foregroundStyle(row.processSummary.hasPrefix("Matched") ? .green : .secondary)
 
             Text(row.sourcePath)
                 .font(.caption)

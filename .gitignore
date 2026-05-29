@@ -1,0 +1,15 @@
+# macOS
+.DS_Store
+
+# SwiftPM
+.build/
+.swiftpm/
+Package.resolved
+
+# Xcode
+DerivedData/
+*.xcuserdata/
+
+# MCP-HQ runtime artifacts
+*.sqlite
+*.log

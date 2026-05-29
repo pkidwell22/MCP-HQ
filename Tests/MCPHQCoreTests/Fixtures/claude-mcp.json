@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "github": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}"
+      }
+    },
+    "qmd": {
+      "command": "bun",
+      "args": ["/Users/patkidwell/qmd/dist/mcp.js"],
+      "env": {}
+    }
+  }
+}

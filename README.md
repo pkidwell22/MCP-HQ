@@ -4,7 +4,7 @@ MCP-HQ is a proposed native macOS control center for local Model Context Protoco
 
 The product direction is: see, fix, configure, and eventually broker every MCP server on a Mac from one place.
 
-This repo currently contains architecture and product planning documents, not implementation code.
+This repo contains architecture/product planning documents plus the first Swift package skeleton for the app, CLI, and core library.
 
 ## Planning docs
 

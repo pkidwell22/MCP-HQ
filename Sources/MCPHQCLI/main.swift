@@ -1,0 +1,1 @@
+print("MCP-HQ CLI")

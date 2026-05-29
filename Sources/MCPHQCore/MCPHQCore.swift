@@ -1,0 +1,1 @@
+// MCP-HQ core module.

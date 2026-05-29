@@ -81,11 +81,13 @@ public struct MCPStdioProbe: Sendable {
                 return MCPProbeResult(serverID: server.id, status: .warning, message: "tools/list response did not include tools.")
             }
             let toolNames = tools.compactMap { $0["name"] as? String }
+            let toolDetails = tools.compactMap(makeToolDetail)
             return MCPProbeResult(
                 serverID: server.id,
                 status: .healthy,
                 toolCount: tools.count,
                 toolNames: toolNames,
+                toolDetails: toolDetails,
                 message: "tools/list succeeded"
             )
         } catch ProbeError.timedOut {
@@ -192,6 +194,32 @@ public struct MCPStdioProbe: Sendable {
             "method": "tools/list",
             "params": [:]
         ]
+    }
+
+    private func makeToolDetail(from tool: [String: Any]) -> MCPToolDetail? {
+        guard let name = tool["name"] as? String, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return MCPToolDetail(
+            name: name,
+            description: tool["description"] as? String ?? "",
+            inputSchemaSummary: schemaSummary(from: tool["inputSchema"])
+        )
+    }
+
+    private func schemaSummary(from value: Any?) -> String {
+        guard let schema = value as? [String: Any] else { return "" }
+        var parts: [String] = []
+        if let type = schema["type"] as? String, !type.isEmpty {
+            parts.append(type)
+        } else {
+            parts.append("schema")
+        }
+        if let required = schema["required"] as? [String], !required.isEmpty {
+            parts.append("required: \(required.joined(separator: ", "))")
+        }
+        if let properties = schema["properties"] as? [String: Any], !properties.isEmpty {
+            parts.append("properties: \(properties.keys.sorted().joined(separator: ", "))")
+        }
+        return parts.joined(separator: " • ")
     }
 
     private func errorMessage(in response: [String: Any]) -> String? {

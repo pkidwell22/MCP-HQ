@@ -48,21 +48,36 @@ public enum MCPProbeStatus: String, Codable, Equatable, Sendable {
     case skipped
 }
 
+public struct MCPToolDetail: Codable, Equatable, Sendable, Identifiable {
+    public var id: String { name }
+    public let name: String
+    public let description: String
+    public let inputSchemaSummary: String
+
+    public init(name: String, description: String = "", inputSchemaSummary: String = "") {
+        self.name = SecretRedactor.redactText(name.trimmingCharacters(in: .whitespacesAndNewlines))
+        self.description = SecretRedactor.redactText(description.trimmingCharacters(in: .whitespacesAndNewlines))
+        self.inputSchemaSummary = SecretRedactor.redactText(inputSchemaSummary.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+}
+
 public struct MCPProbeResult: Codable, Equatable, Sendable, Identifiable {
     public var id: String { serverID }
     public let serverID: String
     public let status: MCPProbeStatus
     public let toolCount: Int?
     public let toolNames: [String]
+    public let toolDetails: [MCPToolDetail]
     public let message: String
 
-    public init(serverID: String, status: MCPProbeStatus, toolCount: Int? = nil, toolNames: [String] = [], message: String) {
+    public init(serverID: String, status: MCPProbeStatus, toolCount: Int? = nil, toolNames: [String] = [], toolDetails: [MCPToolDetail] = [], message: String) {
         self.serverID = serverID
         self.status = status
         self.toolCount = toolCount
         self.toolNames = toolNames
             .map { SecretRedactor.redactText($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
             .filter { !$0.isEmpty }
+        self.toolDetails = toolDetails.filter { !$0.name.isEmpty }
         self.message = message
     }
 }

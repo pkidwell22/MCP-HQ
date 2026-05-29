@@ -378,6 +378,35 @@ struct ServerInspectorView: View {
                 }
             }
 
+            if !detail.toolDetails.isEmpty {
+                DisclosureGroup("Tool details") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(detail.toolDetails) { tool in
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(tool.name)
+                                    .font(.system(.caption, design: .monospaced).bold())
+                                    .textSelection(.enabled)
+                                if !tool.description.isEmpty {
+                                    Text(tool.description)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .textSelection(.enabled)
+                                }
+                                if !tool.inputSchemaSummary.isEmpty {
+                                    Text("Input: \(tool.inputSchemaSummary)")
+                                        .font(.system(.caption2, design: .monospaced))
+                                        .foregroundStyle(.secondary)
+                                        .textSelection(.enabled)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                    .padding(.top, 4)
+                }
+                .font(.caption)
+            }
+
             if !detail.redactedEnvBindings.isEmpty {
                 DisclosureGroup("Environment") {
                     VStack(alignment: .leading, spacing: 4) {

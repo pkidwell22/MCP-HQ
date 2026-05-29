@@ -30,8 +30,19 @@ final class MCPStdioProbeTests: XCTestCase {
                     "id": request["id"],
                     "result": {
                         "tools": [
-                            {"name": "alpha"},
-                            {"name": "beta"},
+                            {
+                                "name": "alpha",
+                                "description": "Read project files safely",
+                                "inputSchema": {
+                                    "type": "object",
+                                    "required": ["path"],
+                                    "properties": {
+                                        "path": {"type": "string"},
+                                        "limit": {"type": "integer"}
+                                    }
+                                }
+                            },
+                            {"name": "beta", "description": "Beta tool uses token=\(suspiciousToolName)"},
                             {"name": "\(suspiciousToolName)"}
                         ]
                     }
@@ -52,6 +63,12 @@ final class MCPStdioProbeTests: XCTestCase {
         XCTAssertEqual(result.status, .healthy)
         XCTAssertEqual(result.toolCount, 3)
         XCTAssertEqual(result.toolNames, ["alpha", "beta", "danger-<redacted>"])
+        XCTAssertEqual(result.toolDetails.map(\.name), ["alpha", "beta", "danger-<redacted>"])
+        let alpha = try XCTUnwrap(result.toolDetails.first)
+        XCTAssertEqual(alpha.description, "Read project files safely")
+        XCTAssertEqual(alpha.inputSchemaSummary, "object • required: path • properties: limit, path")
+        let beta = try XCTUnwrap(result.toolDetails.dropFirst().first)
+        XCTAssertEqual(beta.description, "Beta tool uses token=<redacted>")
         XCTAssertFalse(String(describing: result).contains(suspiciousToolName))
         XCTAssertEqual(result.message, "tools/list succeeded")
     }

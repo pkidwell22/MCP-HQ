@@ -159,6 +159,18 @@ final class DashboardStateBuilderTests: XCTestCase {
                 status: .healthy,
                 toolCount: 3,
                 toolNames: ["create_issue", "search_repositories", suspiciousToolName],
+                toolDetails: [
+                    MCPToolDetail(
+                        name: "create_issue",
+                        description: "Create a GitHub issue",
+                        inputSchemaSummary: "object • required: owner, repo, title • properties: body, owner, repo, title"
+                    ),
+                    MCPToolDetail(
+                        name: suspiciousToolName,
+                        description: "Leaky description token=\(suspiciousToolName)",
+                        inputSchemaSummary: "object"
+                    ),
+                ],
                 message: "tools/list succeeded"
             )]
         )
@@ -171,6 +183,12 @@ final class DashboardStateBuilderTests: XCTestCase {
         XCTAssertEqual(detail.connectionSummary, "stdio • npx -y @modelcontextprotocol/server-github")
         XCTAssertEqual(detail.toolSummary, "Healthy • 3 tools")
         XCTAssertEqual(detail.toolNames, ["create_issue", "search_repositories", "danger-<redacted>"])
+        XCTAssertEqual(detail.toolDetails.map(\.name), ["create_issue", "danger-<redacted>"])
+        let createIssue = try XCTUnwrap(detail.toolDetails.first)
+        XCTAssertEqual(createIssue.description, "Create a GitHub issue")
+        XCTAssertEqual(createIssue.inputSchemaSummary, "object • required: owner, repo, title • properties: body, owner, repo, title")
+        let redactedTool = try XCTUnwrap(detail.toolDetails.dropFirst().first)
+        XCTAssertEqual(redactedTool.description, "Leaky description token=<redacted>")
         XCTAssertEqual(detail.sourcePath, source.path)
         XCTAssertEqual(detail.redactedEnvBindings["GITHUB_TOKEN"], "<redacted>")
         XCTAssertEqual(detail.processRows.map(\.pid), [4201])

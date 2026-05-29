@@ -87,6 +87,7 @@ public struct DashboardServerDetail: Identifiable, Equatable, Sendable {
     public let redactedEnvBindings: [String: String]
     public let sourcePath: String
     public let toolNames: [String]
+    public let toolDetails: [MCPToolDetail]
     public let processRows: [DashboardProcessRow]
     public let issueRows: [DashboardIssueRow]
 
@@ -101,6 +102,7 @@ public struct DashboardServerDetail: Identifiable, Equatable, Sendable {
         redactedEnvBindings: [String: String],
         sourcePath: String,
         toolNames: [String] = [],
+        toolDetails: [MCPToolDetail] = [],
         processRows: [DashboardProcessRow],
         issueRows: [DashboardIssueRow]
     ) {
@@ -114,6 +116,7 @@ public struct DashboardServerDetail: Identifiable, Equatable, Sendable {
         self.redactedEnvBindings = redactedEnvBindings
         self.sourcePath = sourcePath
         self.toolNames = toolNames
+        self.toolDetails = toolDetails
         self.processRows = processRows
         self.issueRows = issueRows
     }
@@ -299,6 +302,7 @@ public struct DashboardStateBuilder: Sendable {
             redactedEnvBindings: server.redactedEnvBindings,
             sourcePath: server.sourcePath,
             toolNames: probe?.toolNames ?? [],
+            toolDetails: probe?.toolDetails ?? [],
             processRows: matchedProcessRows,
             issueRows: issueRows
         )

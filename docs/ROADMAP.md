@@ -1,6 +1,6 @@
 # MCP-HQ Roadmap
 
-Last updated: 2026-05-28
+Last updated: 2026-05-29
 
 ## Phase 0: Planning and spikes
 
@@ -194,11 +194,11 @@ Acceptance criteria:
 
 ## Recommended first implementation ticket list
 
-1. Create Swift package/app skeleton.
+1. Create Swift package/app skeleton. ✅
 2. Add SQLite schema migrations for registry tables.
-3. Add fixture configs under `fixtures/configs`.
-4. Implement Claude config parser.
-5. Implement Hermes config parser.
+3. Add fixture configs under `fixtures/configs`. ✅
+4. Implement Claude config parser. ✅
+5. Implement Hermes config parser. ✅
 6. Implement Gemini config parser.
 7. Implement process scanner.
 8. Implement server correlation heuristic.

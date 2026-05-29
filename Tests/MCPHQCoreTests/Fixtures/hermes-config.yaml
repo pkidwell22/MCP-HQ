@@ -1,0 +1,26 @@
+model:
+  provider: openrouter
+
+mcp_servers:
+  filesystem:
+    command: npx
+    args:
+    - -y
+    - "@modelcontextprotocol/server-filesystem"
+    - /Users/example
+    timeout: 30
+  github:
+    command: npx
+    args:
+    - -y
+    - "@modelcontextprotocol/server-github"
+    env:
+      GITHUB_PERSONAL_ACCESS_TOKEN: fake-secret-token-1234567890
+      SAFE_REFERENCE: ${GITHUB_PERSONAL_ACCESS_TOKEN}
+    timeout: 60
+  twozero_td:
+    url: http://127.0.0.1:7000/mcp
+    timeout: 120
+  disabled_server:
+    command: should-not-appear
+    enabled: false

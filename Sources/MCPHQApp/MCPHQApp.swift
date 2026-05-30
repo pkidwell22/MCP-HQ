@@ -459,6 +459,54 @@ struct ServerInspectorView: View {
                 .font(.caption)
             }
 
+            if !detail.promptNames.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Prompts • \(detail.promptSummary)")
+                        .font(.caption.bold())
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            ForEach(detail.promptNames, id: \.self) { name in
+                                Text(name)
+                                    .font(.system(.caption2, design: .monospaced))
+                                    .padding(.horizontal, 7)
+                                    .padding(.vertical, 4)
+                                    .background(.thinMaterial, in: Capsule())
+                                    .textSelection(.enabled)
+                            }
+                        }
+                    }
+                }
+            }
+
+            if !detail.promptDetails.isEmpty {
+                DisclosureGroup("Prompt details") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(detail.promptDetails) { prompt in
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(prompt.name)
+                                    .font(.system(.caption, design: .monospaced).bold())
+                                    .textSelection(.enabled)
+                                if !prompt.description.isEmpty {
+                                    Text(prompt.description)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .textSelection(.enabled)
+                                }
+                                if !prompt.argumentSummary.isEmpty {
+                                    Text("Arguments: \(prompt.argumentSummary)")
+                                        .font(.system(.caption2, design: .monospaced))
+                                        .foregroundStyle(.secondary)
+                                        .textSelection(.enabled)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                    .padding(.top, 4)
+                }
+                .font(.caption)
+            }
+
             if !detail.redactedEnvBindings.isEmpty {
                 DisclosureGroup("Environment") {
                     VStack(alignment: .leading, spacing: 4) {

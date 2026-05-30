@@ -91,6 +91,9 @@ public struct DashboardServerDetail: Identifiable, Equatable, Sendable {
     public let resourceSummary: String
     public let resourceNames: [String]
     public let resourceDetails: [MCPResourceDetail]
+    public let promptSummary: String
+    public let promptNames: [String]
+    public let promptDetails: [MCPPromptDetail]
     public let processRows: [DashboardProcessRow]
     public let issueRows: [DashboardIssueRow]
 
@@ -109,6 +112,9 @@ public struct DashboardServerDetail: Identifiable, Equatable, Sendable {
         resourceSummary: String = "Resources not probed",
         resourceNames: [String] = [],
         resourceDetails: [MCPResourceDetail] = [],
+        promptSummary: String = "Prompts not probed",
+        promptNames: [String] = [],
+        promptDetails: [MCPPromptDetail] = [],
         processRows: [DashboardProcessRow],
         issueRows: [DashboardIssueRow]
     ) {
@@ -126,6 +132,9 @@ public struct DashboardServerDetail: Identifiable, Equatable, Sendable {
         self.resourceSummary = resourceSummary
         self.resourceNames = resourceNames
         self.resourceDetails = resourceDetails
+        self.promptSummary = promptSummary
+        self.promptNames = promptNames
+        self.promptDetails = promptDetails
         self.processRows = processRows
         self.issueRows = issueRows
     }
@@ -315,6 +324,9 @@ public struct DashboardStateBuilder: Sendable {
             resourceSummary: resourceSummary(for: probe),
             resourceNames: probe?.resourceNames ?? [],
             resourceDetails: probe?.resourceDetails ?? [],
+            promptSummary: promptSummary(for: probe),
+            promptNames: probe?.promptNames ?? [],
+            promptDetails: probe?.promptDetails ?? [],
             processRows: matchedProcessRows,
             issueRows: issueRows
         )
@@ -401,6 +413,12 @@ public struct DashboardStateBuilder: Sendable {
         guard let probe else { return "Resources not probed" }
         guard let resourceCount = probe.resourceCount else { return "Resources not probed" }
         return "\(resourceCount) \(resourceCount == 1 ? "resource" : "resources")"
+    }
+
+    private func promptSummary(for probe: MCPProbeResult?) -> String {
+        guard let probe else { return "Prompts not probed" }
+        guard let promptCount = probe.promptCount else { return "Prompts not probed" }
+        return "\(promptCount) \(promptCount == 1 ? "prompt" : "prompts")"
     }
 
     private func statusText(serverCount: Int, processCount: Int, sourceCount: Int, warningCount: Int, errorCount: Int) -> String {

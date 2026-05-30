@@ -76,6 +76,19 @@ public struct MCPResourceDetail: Codable, Equatable, Sendable, Identifiable {
     }
 }
 
+public struct MCPPromptDetail: Codable, Equatable, Sendable, Identifiable {
+    public var id: String { name }
+    public let name: String
+    public let description: String
+    public let argumentSummary: String
+
+    public init(name: String, description: String = "", argumentSummary: String = "") {
+        self.name = SecretRedactor.redactText(name.trimmingCharacters(in: .whitespacesAndNewlines))
+        self.description = SecretRedactor.redactText(description.trimmingCharacters(in: .whitespacesAndNewlines))
+        self.argumentSummary = SecretRedactor.redactText(argumentSummary.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+}
+
 public struct MCPProbeResult: Codable, Equatable, Sendable, Identifiable {
     public var id: String { serverID }
     public let serverID: String
@@ -86,6 +99,9 @@ public struct MCPProbeResult: Codable, Equatable, Sendable, Identifiable {
     public let resourceCount: Int?
     public let resourceNames: [String]
     public let resourceDetails: [MCPResourceDetail]
+    public let promptCount: Int?
+    public let promptNames: [String]
+    public let promptDetails: [MCPPromptDetail]
     public let message: String
 
     public init(
@@ -97,6 +113,9 @@ public struct MCPProbeResult: Codable, Equatable, Sendable, Identifiable {
         resourceCount: Int? = nil,
         resourceNames: [String] = [],
         resourceDetails: [MCPResourceDetail] = [],
+        promptCount: Int? = nil,
+        promptNames: [String] = [],
+        promptDetails: [MCPPromptDetail] = [],
         message: String
     ) {
         self.serverID = serverID
@@ -111,6 +130,11 @@ public struct MCPProbeResult: Codable, Equatable, Sendable, Identifiable {
             .map { SecretRedactor.redactText($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
             .filter { !$0.isEmpty }
         self.resourceDetails = resourceDetails.filter { !$0.uri.isEmpty }
+        self.promptCount = promptCount
+        self.promptNames = promptNames
+            .map { SecretRedactor.redactText($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+            .filter { !$0.isEmpty }
+        self.promptDetails = promptDetails.filter { !$0.name.isEmpty }
         self.message = message
     }
 }

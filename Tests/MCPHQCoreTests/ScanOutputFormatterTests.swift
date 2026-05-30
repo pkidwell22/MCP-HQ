@@ -113,12 +113,14 @@ final class ScanOutputFormatterTests: XCTestCase {
                 toolCount: 9,
                 resourceCount: 2,
                 resourceNames: ["Project docs", "secret-ghp_1234567890abcdef"],
+                promptCount: 1,
+                promptNames: ["secret-ghp_1234567890abcdef"],
                 message: "capability discovery succeeded"
             )]
         )
 
         let text = ScanOutputFormatter().formatText(result)
-        XCTAssertTrue(text.contains("probe: healthy • 9 tools • 2 resources • capability discovery succeeded"), text)
+        XCTAssertTrue(text.contains("probe: healthy • 9 tools • 2 resources • 1 prompt • capability discovery succeeded"), text)
 
         let json = try ScanOutputFormatter().formatJSON(result)
         let data = try XCTUnwrap(json.data(using: .utf8))
@@ -129,5 +131,7 @@ final class ScanOutputFormatterTests: XCTestCase {
         XCTAssertEqual(probes.first?["toolCount"] as? Int, 9)
         XCTAssertEqual(probes.first?["resourceCount"] as? Int, 2)
         XCTAssertEqual(probes.first?["resourceNames"] as? [String], ["Project docs", "secret-<redacted>"])
+        XCTAssertEqual(probes.first?["promptCount"] as? Int, 1)
+        XCTAssertEqual(probes.first?["promptNames"] as? [String], ["secret-<redacted>"])
     }
 }

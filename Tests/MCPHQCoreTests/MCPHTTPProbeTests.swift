@@ -21,7 +21,7 @@ final class MCPHTTPProbeTests: XCTestCase {
                         "id": request["id"],
                         "result": {
                             "protocolVersion": "2024-11-05",
-                            "capabilities": {"tools": {}, "resources": {}},
+                            "capabilities": {"tools": {}, "resources": {}, "prompts": {}},
                             "serverInfo": {"name": "http-test", "version": "1.0.0"}
                         }
                     }
@@ -79,6 +79,31 @@ final class MCPHTTPProbeTests: XCTestCase {
                         }
                     }
                     self.send_json(response)
+                elif method == "prompts/list":
+                    if self.headers.get("Mcp-Session-Id") != "session-123":
+                        self.send_json({
+                            "jsonrpc": "2.0",
+                            "id": request["id"],
+                            "error": {"code": -32000, "message": "missing session"}
+                        })
+                        return
+                    response = {
+                        "jsonrpc": "2.0",
+                        "id": request["id"],
+                        "result": {
+                            "prompts": [
+                                {
+                                    "name": "draft_release_notes",
+                                    "description": "Draft release notes with token=***",
+                                    "arguments": [
+                                        {"name": "version", "required": True},
+                                        {"name": "audience", "required": False}
+                                    ]
+                                }
+                            ]
+                        }
+                    }
+                    self.send_json(response)
                 else:
                     self.send_json({
                         "jsonrpc": "2.0",
@@ -120,6 +145,8 @@ final class MCPHTTPProbeTests: XCTestCase {
         XCTAssertEqual(result.toolNames, ["remote-alpha"])
         XCTAssertEqual(result.resourceCount, 1)
         XCTAssertEqual(result.resourceNames, ["Project docs"])
+        XCTAssertEqual(result.promptCount, 1)
+        XCTAssertEqual(result.promptNames, ["draft_release_notes"])
         let detail = try XCTUnwrap(result.toolDetails.first)
         XCTAssertEqual(detail.name, "remote-alpha")
         XCTAssertEqual(detail.description, "Remote tool with api_key=<redacted>")
@@ -129,6 +156,10 @@ final class MCPHTTPProbeTests: XCTestCase {
         XCTAssertEqual(resource.name, "Project docs")
         XCTAssertEqual(resource.description, "Docs with token=<redacted>")
         XCTAssertEqual(resource.mimeType, "text/markdown")
+        let prompt = try XCTUnwrap(result.promptDetails.first)
+        XCTAssertEqual(prompt.name, "draft_release_notes")
+        XCTAssertEqual(prompt.description, "Draft release notes with token=<redacted>")
+        XCTAssertEqual(prompt.argumentSummary, "required: version • optional: audience")
         XCTAssertFalse(String(describing: result).contains("***"))
         XCTAssertEqual(result.message, "capability discovery succeeded")
     }

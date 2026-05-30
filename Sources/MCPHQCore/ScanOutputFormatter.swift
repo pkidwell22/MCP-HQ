@@ -9,6 +9,9 @@ public struct ScanOutputFormatter: Sendable {
         if let resourceCount = result.resourceCount {
             parts.append("\(resourceCount) \(resourceCount == 1 ? "resource" : "resources")")
         }
+        if let promptCount = result.promptCount {
+            parts.append("\(promptCount) \(promptCount == 1 ? "prompt" : "prompts")")
+        }
         parts.append(result.message)
         return parts.joined(separator: " • ")
     }

@@ -18,7 +18,7 @@ final class MCPStdioProbeTests: XCTestCase {
                     "id": request["id"],
                     "result": {
                         "protocolVersion": "2024-11-05",
-                        "capabilities": {"tools": {}, "resources": {}},
+                        "capabilities": {"tools": {}, "resources": {}, "prompts": {}},
                         "serverInfo": {"name": "fake", "version": "1.0.0"}
                     }
                 }), flush=True)
@@ -66,6 +66,28 @@ final class MCPStdioProbeTests: XCTestCase {
                         ]
                     }
                 }), flush=True)
+            elif method == "prompts/list":
+                print(json.dumps({
+                    "jsonrpc": "2.0",
+                    "id": request["id"],
+                    "result": {
+                        "prompts": [
+                            {
+                                "name": "summarize_project",
+                                "description": "Summarize project context",
+                                "arguments": [
+                                    {"name": "topic", "description": "Topic to summarize", "required": True},
+                                    {"name": "limit", "required": False}
+                                ]
+                            },
+                            {
+                                "name": "\(suspiciousToolName)",
+                                "description": "Prompt leaks token=\(suspiciousToolName)",
+                                "arguments": [{"name": "secret", "description": "api_key=\(suspiciousToolName)", "required": True}]
+                            }
+                        ]
+                    }
+                }), flush=True)
                 break
         """)
         let server = ServerDefinition(
@@ -84,6 +106,8 @@ final class MCPStdioProbeTests: XCTestCase {
         XCTAssertEqual(result.toolNames, ["alpha", "beta", "danger-<redacted>"])
         XCTAssertEqual(result.resourceCount, 2)
         XCTAssertEqual(result.resourceNames, ["Project notes", "secret:<redacted>"])
+        XCTAssertEqual(result.promptCount, 2)
+        XCTAssertEqual(result.promptNames, ["summarize_project", "danger-<redacted>"])
         XCTAssertEqual(result.toolDetails.map(\.name), ["alpha", "beta", "danger-<redacted>"])
         let alpha = try XCTUnwrap(result.toolDetails.first)
         XCTAssertEqual(alpha.description, "Read project files safely")
@@ -98,6 +122,14 @@ final class MCPStdioProbeTests: XCTestCase {
         let secondResource = try XCTUnwrap(result.resourceDetails.dropFirst().first)
         XCTAssertEqual(secondResource.uri, "secret:<redacted>")
         XCTAssertEqual(secondResource.description, "Resource leaks api_key=<redacted>")
+        let firstPrompt = try XCTUnwrap(result.promptDetails.first)
+        XCTAssertEqual(firstPrompt.name, "summarize_project")
+        XCTAssertEqual(firstPrompt.description, "Summarize project context")
+        XCTAssertEqual(firstPrompt.argumentSummary, "required: topic • optional: limit")
+        let secondPrompt = try XCTUnwrap(result.promptDetails.dropFirst().first)
+        XCTAssertEqual(secondPrompt.name, "danger-<redacted>")
+        XCTAssertEqual(secondPrompt.description, "Prompt leaks token=<redacted>")
+        XCTAssertEqual(secondPrompt.argumentSummary, "required: secret")
         XCTAssertFalse(String(describing: result).contains(suspiciousToolName))
         XCTAssertEqual(result.message, "capability discovery succeeded")
     }

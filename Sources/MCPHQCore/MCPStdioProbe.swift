@@ -85,6 +85,9 @@ public struct MCPStdioProbe: Sendable {
             let resourceProbe = supportsResources(in: initializeResponse)
                 ? try readResources(process: process, stdin: stdin.fileHandleForWriting, stdoutBuffer: stdoutBuffer)
                 : nil
+            let promptProbe = supportsPrompts(in: initializeResponse)
+                ? try readPrompts(process: process, stdin: stdin.fileHandleForWriting, stdoutBuffer: stdoutBuffer)
+                : nil
             return MCPProbeResult(
                 serverID: server.id,
                 status: .healthy,
@@ -94,7 +97,10 @@ public struct MCPStdioProbe: Sendable {
                 resourceCount: resourceProbe?.resources.count,
                 resourceNames: resourceProbe?.resourceNames ?? [],
                 resourceDetails: resourceProbe?.resourceDetails ?? [],
-                message: resourceProbe == nil ? "tools/list succeeded" : "capability discovery succeeded"
+                promptCount: promptProbe?.prompts.count,
+                promptNames: promptProbe?.promptNames ?? [],
+                promptDetails: promptProbe?.promptDetails ?? [],
+                message: resourceProbe == nil && promptProbe == nil ? "tools/list succeeded" : "capability discovery succeeded"
             )
         } catch ProbeError.timedOut {
             terminate(process)
@@ -211,6 +217,15 @@ public struct MCPStdioProbe: Sendable {
         ]
     }
 
+    private func promptsListRequest(id: Int) -> [String: Any] {
+        [
+            "jsonrpc": "2.0",
+            "id": id,
+            "method": "prompts/list",
+            "params": [:]
+        ]
+    }
+
     private func readResources(process: Process, stdin: FileHandle, stdoutBuffer: LockedDataBuffer) throws -> ResourceProbePayload? {
         try writeJSONLine(resourcesListRequest(id: 3), to: stdin)
         let response = try waitForResponse(id: 3, process: process, buffer: stdoutBuffer, timeout: timeout)
@@ -220,10 +235,27 @@ public struct MCPStdioProbe: Sendable {
         return ResourceProbePayload(resources: resources)
     }
 
+    private func readPrompts(process: Process, stdin: FileHandle, stdoutBuffer: LockedDataBuffer) throws -> PromptProbePayload? {
+        try writeJSONLine(promptsListRequest(id: 4), to: stdin)
+        let response = try waitForResponse(id: 4, process: process, buffer: stdoutBuffer, timeout: timeout)
+        if errorMessage(in: response) != nil { return nil }
+        guard let result = response["result"] as? [String: Any],
+              let prompts = result["prompts"] as? [[String: Any]] else { return nil }
+        return PromptProbePayload(prompts: prompts)
+    }
+
     private func supportsResources(in initializeResponse: [String: Any]) -> Bool {
+        supportsCapability("resources", in: initializeResponse)
+    }
+
+    private func supportsPrompts(in initializeResponse: [String: Any]) -> Bool {
+        supportsCapability("prompts", in: initializeResponse)
+    }
+
+    private func supportsCapability(_ key: String, in initializeResponse: [String: Any]) -> Bool {
         guard let result = initializeResponse["result"] as? [String: Any],
               let capabilities = result["capabilities"] as? [String: Any] else { return false }
-        return capabilities["resources"] != nil
+        return capabilities[key] != nil
     }
 
     private func makeToolDetail(from tool: [String: Any]) -> MCPToolDetail? {
@@ -302,6 +334,41 @@ private struct ResourceProbePayload {
             }
             return resource["uri"] as? String
         }
+    }
+}
+
+private struct PromptProbePayload {
+    let prompts: [[String: Any]]
+    let promptNames: [String]
+    let promptDetails: [MCPPromptDetail]
+
+    init(prompts: [[String: Any]]) {
+        self.prompts = prompts
+        self.promptNames = prompts.compactMap { $0["name"] as? String }
+        self.promptDetails = prompts.compactMap { prompt in
+            guard let name = prompt["name"] as? String, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+            return MCPPromptDetail(
+                name: name,
+                description: prompt["description"] as? String ?? "",
+                argumentSummary: Self.argumentSummary(from: prompt["arguments"])
+            )
+        }
+    }
+
+    private static func argumentSummary(from value: Any?) -> String {
+        guard let arguments = value as? [[String: Any]], !arguments.isEmpty else { return "" }
+        let required = arguments.compactMap { argument -> String? in
+            guard argument["required"] as? Bool == true else { return nil }
+            return argument["name"] as? String
+        }
+        let optional = arguments.compactMap { argument -> String? in
+            guard argument["required"] as? Bool != true else { return nil }
+            return argument["name"] as? String
+        }
+        var parts: [String] = []
+        if !required.isEmpty { parts.append("required: \(required.joined(separator: ", "))") }
+        if !optional.isEmpty { parts.append("optional: \(optional.joined(separator: ", "))") }
+        return parts.joined(separator: " • ")
     }
 }
 

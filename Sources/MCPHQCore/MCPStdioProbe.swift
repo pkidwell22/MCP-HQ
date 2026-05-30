@@ -72,6 +72,7 @@ public struct MCPStdioProbe: Sendable {
             }
 
             try writeJSONLine(initializedNotification(), to: stdin.fileHandleForWriting)
+            let pingSucceeded = readPing(process: process, stdin: stdin.fileHandleForWriting, stdoutBuffer: stdoutBuffer)
             try writeJSONLine(toolsListRequest(id: 2), to: stdin.fileHandleForWriting)
             let toolsResponse = try waitForResponse(id: 2, process: process, buffer: stdoutBuffer, timeout: timeout)
             if let message = errorMessage(in: toolsResponse) {
@@ -97,6 +98,7 @@ public struct MCPStdioProbe: Sendable {
                 resourceCount: resourceProbe?.resources.count,
                 resourceNames: resourceProbe?.resourceNames ?? [],
                 resourceDetails: resourceProbe?.resourceDetails ?? [],
+                pingSucceeded: pingSucceeded,
                 promptCount: promptProbe?.prompts.count,
                 promptNames: promptProbe?.promptNames ?? [],
                 promptDetails: promptProbe?.promptDetails ?? [],
@@ -208,6 +210,15 @@ public struct MCPStdioProbe: Sendable {
         ]
     }
 
+    private func pingRequest(id: Int) -> [String: Any] {
+        [
+            "jsonrpc": "2.0",
+            "id": id,
+            "method": "ping",
+            "params": [:]
+        ]
+    }
+
     private func resourcesListRequest(id: Int) -> [String: Any] {
         [
             "jsonrpc": "2.0",
@@ -224,6 +235,17 @@ public struct MCPStdioProbe: Sendable {
             "method": "prompts/list",
             "params": [:]
         ]
+    }
+
+    private func readPing(process: Process, stdin: FileHandle, stdoutBuffer: LockedDataBuffer) -> Bool? {
+        do {
+            try writeJSONLine(pingRequest(id: 900), to: stdin)
+            let response = try waitForResponse(id: 900, process: process, buffer: stdoutBuffer, timeout: min(timeout, 0.5))
+            if errorMessage(in: response) != nil { return nil }
+            return response["result"] != nil
+        } catch {
+            return nil
+        }
     }
 
     private func readResources(process: Process, stdin: FileHandle, stdoutBuffer: LockedDataBuffer) throws -> ResourceProbePayload? {

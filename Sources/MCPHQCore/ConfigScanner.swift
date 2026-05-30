@@ -99,6 +99,7 @@ public struct MCPProbeResult: Codable, Equatable, Sendable, Identifiable {
     public let resourceCount: Int?
     public let resourceNames: [String]
     public let resourceDetails: [MCPResourceDetail]
+    public let pingSucceeded: Bool?
     public let promptCount: Int?
     public let promptNames: [String]
     public let promptDetails: [MCPPromptDetail]
@@ -113,6 +114,7 @@ public struct MCPProbeResult: Codable, Equatable, Sendable, Identifiable {
         resourceCount: Int? = nil,
         resourceNames: [String] = [],
         resourceDetails: [MCPResourceDetail] = [],
+        pingSucceeded: Bool? = nil,
         promptCount: Int? = nil,
         promptNames: [String] = [],
         promptDetails: [MCPPromptDetail] = [],
@@ -130,6 +132,7 @@ public struct MCPProbeResult: Codable, Equatable, Sendable, Identifiable {
             .map { SecretRedactor.redactText($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
             .filter { !$0.isEmpty }
         self.resourceDetails = resourceDetails.filter { !$0.uri.isEmpty }
+        self.pingSucceeded = pingSucceeded
         self.promptCount = promptCount
         self.promptNames = promptNames
             .map { SecretRedactor.redactText($0.trimmingCharacters(in: .whitespacesAndNewlines)) }

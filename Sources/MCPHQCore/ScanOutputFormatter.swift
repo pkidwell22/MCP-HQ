@@ -12,6 +12,9 @@ public struct ScanOutputFormatter: Sendable {
         if let promptCount = result.promptCount {
             parts.append("\(promptCount) \(promptCount == 1 ? "prompt" : "prompts")")
         }
+        if result.pingSucceeded == true {
+            parts.append("ping ok")
+        }
         parts.append(result.message)
         return parts.joined(separator: " • ")
     }

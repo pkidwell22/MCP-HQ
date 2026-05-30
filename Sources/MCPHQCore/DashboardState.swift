@@ -49,6 +49,7 @@ public struct DashboardServerRow: Identifiable, Equatable, Sendable {
     public let connectionSummary: String
     public let processSummary: String
     public let toolSummary: String
+    public let healthSummary: String
     public let envSummary: String
     public let redactedEnvBindings: [String: String]
     public let sourcePath: String
@@ -60,6 +61,7 @@ public struct DashboardServerRow: Identifiable, Equatable, Sendable {
         connectionSummary: String,
         processSummary: String = "No running process matched",
         toolSummary: String = "Probe not run",
+        healthSummary: String = "MCP ping not checked",
         envSummary: String,
         redactedEnvBindings: [String: String],
         sourcePath: String
@@ -70,6 +72,7 @@ public struct DashboardServerRow: Identifiable, Equatable, Sendable {
         self.connectionSummary = connectionSummary
         self.processSummary = processSummary
         self.toolSummary = toolSummary
+        self.healthSummary = healthSummary
         self.envSummary = envSummary
         self.redactedEnvBindings = redactedEnvBindings
         self.sourcePath = sourcePath
@@ -83,6 +86,7 @@ public struct DashboardServerDetail: Identifiable, Equatable, Sendable {
     public let connectionSummary: String
     public let processSummary: String
     public let toolSummary: String
+    public let healthSummary: String
     public let envSummary: String
     public let redactedEnvBindings: [String: String]
     public let sourcePath: String
@@ -104,6 +108,7 @@ public struct DashboardServerDetail: Identifiable, Equatable, Sendable {
         connectionSummary: String,
         processSummary: String,
         toolSummary: String,
+        healthSummary: String = "MCP ping not checked",
         envSummary: String,
         redactedEnvBindings: [String: String],
         sourcePath: String,
@@ -124,6 +129,7 @@ public struct DashboardServerDetail: Identifiable, Equatable, Sendable {
         self.connectionSummary = connectionSummary
         self.processSummary = processSummary
         self.toolSummary = toolSummary
+        self.healthSummary = healthSummary
         self.envSummary = envSummary
         self.redactedEnvBindings = redactedEnvBindings
         self.sourcePath = sourcePath
@@ -291,6 +297,7 @@ public struct DashboardStateBuilder: Sendable {
             connectionSummary: connectionSummary(for: server),
             processSummary: processSummary(for: matches),
             toolSummary: toolSummary(for: probe),
+            healthSummary: healthSummary(for: probe),
             envSummary: envSummary(for: server.envBindings),
             redactedEnvBindings: server.redactedEnvBindings,
             sourcePath: server.sourcePath
@@ -316,6 +323,7 @@ public struct DashboardStateBuilder: Sendable {
             connectionSummary: connectionSummary(for: server),
             processSummary: processSummary(for: matches),
             toolSummary: toolSummary(for: probe),
+            healthSummary: healthSummary(for: probe),
             envSummary: envSummary(for: server.envBindings),
             redactedEnvBindings: server.redactedEnvBindings,
             sourcePath: server.sourcePath,
@@ -407,6 +415,12 @@ public struct DashboardStateBuilder: Sendable {
         let status = probe.status.rawValue.capitalized
         guard let toolCount = probe.toolCount else { return "\(status) • tool count unknown" }
         return "\(status) • \(toolCount) \(toolCount == 1 ? "tool" : "tools")"
+    }
+
+    private func healthSummary(for probe: MCPProbeResult?) -> String {
+        guard let probe else { return "MCP ping not checked" }
+        guard let pingSucceeded = probe.pingSucceeded else { return "MCP ping not checked" }
+        return pingSucceeded ? "MCP ping ok" : "MCP ping failed"
     }
 
     private func resourceSummary(for probe: MCPProbeResult?) -> String {

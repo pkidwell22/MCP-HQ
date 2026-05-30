@@ -30,6 +30,15 @@ final class MCPHTTPProbeTests: XCTestCase {
                     self.send_response(202)
                     self.send_header("Content-Length", "0")
                     self.end_headers()
+                elif method == "ping":
+                    if self.headers.get("Mcp-Session-Id") != "session-123":
+                        self.send_json({
+                            "jsonrpc": "2.0",
+                            "id": request["id"],
+                            "error": {"code": -32000, "message": "missing session"}
+                        })
+                        return
+                    self.send_json({"jsonrpc": "2.0", "id": request["id"], "result": {}})
                 elif method == "tools/list":
                     if self.headers.get("Mcp-Session-Id") != "session-123":
                         self.send_json({
@@ -145,6 +154,7 @@ final class MCPHTTPProbeTests: XCTestCase {
         XCTAssertEqual(result.toolNames, ["remote-alpha"])
         XCTAssertEqual(result.resourceCount, 1)
         XCTAssertEqual(result.resourceNames, ["Project docs"])
+        XCTAssertEqual(result.pingSucceeded, true)
         XCTAssertEqual(result.promptCount, 1)
         XCTAssertEqual(result.promptNames, ["draft_release_notes"])
         let detail = try XCTUnwrap(result.toolDetails.first)

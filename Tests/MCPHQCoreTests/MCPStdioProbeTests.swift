@@ -24,6 +24,12 @@ final class MCPStdioProbeTests: XCTestCase {
                 }), flush=True)
             elif method == "notifications/initialized":
                 continue
+            elif method == "ping":
+                print(json.dumps({
+                    "jsonrpc": "2.0",
+                    "id": request["id"],
+                    "result": {}
+                }), flush=True)
             elif method == "tools/list":
                 print(json.dumps({
                     "jsonrpc": "2.0",
@@ -106,6 +112,7 @@ final class MCPStdioProbeTests: XCTestCase {
         XCTAssertEqual(result.toolNames, ["alpha", "beta", "danger-<redacted>"])
         XCTAssertEqual(result.resourceCount, 2)
         XCTAssertEqual(result.resourceNames, ["Project notes", "secret:<redacted>"])
+        XCTAssertEqual(result.pingSucceeded, true)
         XCTAssertEqual(result.promptCount, 2)
         XCTAssertEqual(result.promptNames, ["summarize_project", "danger-<redacted>"])
         XCTAssertEqual(result.toolDetails.map(\.name), ["alpha", "beta", "danger-<redacted>"])

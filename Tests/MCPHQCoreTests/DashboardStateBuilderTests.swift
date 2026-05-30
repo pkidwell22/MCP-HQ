@@ -185,6 +185,7 @@ final class DashboardStateBuilderTests: XCTestCase {
                         description: "Leaky resource api_key=\(suspiciousToolName)"
                     ),
                 ],
+                pingSucceeded: true,
                 promptCount: 2,
                 promptNames: ["draft_issue", suspiciousToolName],
                 promptDetails: [
@@ -212,6 +213,7 @@ final class DashboardStateBuilderTests: XCTestCase {
         XCTAssertEqual(detail.toolSummary, "Healthy • 3 tools")
         XCTAssertEqual(detail.resourceSummary, "2 resources")
         XCTAssertEqual(detail.promptSummary, "2 prompts")
+        XCTAssertEqual(detail.healthSummary, "MCP ping ok")
         XCTAssertEqual(detail.toolNames, ["create_issue", "search_repositories", "danger-<redacted>"])
         XCTAssertEqual(detail.resourceNames, ["Repo docs", "danger-<redacted>"])
         XCTAssertEqual(detail.promptNames, ["draft_issue", "danger-<redacted>"])

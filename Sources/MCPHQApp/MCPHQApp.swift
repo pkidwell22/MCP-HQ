@@ -341,6 +341,7 @@ struct ServerInspectorView: View {
 
             HStack(spacing: 16) {
                 Label(detail.processSummary, systemImage: "cpu")
+                Label(detail.healthSummary, systemImage: "heart.text.square")
                 Label(detail.envSummary, systemImage: "key")
                 Label(detail.sourcePath, systemImage: "doc.text")
                     .lineLimit(1)

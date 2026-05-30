@@ -44,6 +44,7 @@ public struct MCPHTTPProbe {
                 sessionID: initialize.sessionID,
                 expectsResponse: false
             )
+            let pingSucceeded = readPing(from: url, sessionID: initialize.sessionID)
 
             let toolsResponse = try sendJSONRPC(
                 toolsListRequest(id: 2),
@@ -76,6 +77,7 @@ public struct MCPHTTPProbe {
                 resourceCount: resourceProbe?.resources.count,
                 resourceNames: resourceProbe?.resourceNames ?? [],
                 resourceDetails: resourceProbe?.resourceDetails ?? [],
+                pingSucceeded: pingSucceeded,
                 promptCount: promptProbe?.prompts.count,
                 promptNames: promptProbe?.promptNames ?? [],
                 promptDetails: promptProbe?.promptDetails ?? [],
@@ -90,12 +92,14 @@ public struct MCPHTTPProbe {
         _ object: [String: Any],
         to url: URL,
         sessionID: String?,
-        expectsResponse: Bool
+        expectsResponse: Bool,
+        requestTimeout: TimeInterval? = nil
     ) throws -> HTTPProbeResponse {
         let body = try JSONSerialization.data(withJSONObject: object)
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.timeoutInterval = timeout
+        let effectiveTimeout = requestTimeout ?? timeout
+        request.timeoutInterval = effectiveTimeout
         request.httpBody = body
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json, text/event-stream", forHTTPHeaderField: "Accept")
@@ -104,7 +108,7 @@ public struct MCPHTTPProbe {
             request.setValue(sessionID, forHTTPHeaderField: "Mcp-Session-Id")
         }
 
-        let response = try perform(request)
+        let response = try perform(request, timeout: effectiveTimeout)
         guard (200...299).contains(response.statusCode) else {
             throw HTTPProbeError.httpStatus(response.statusCode, url)
         }
@@ -117,7 +121,7 @@ public struct MCPHTTPProbe {
         return HTTPProbeResponse(object: parsed, sessionID: nextSessionID)
     }
 
-    private func perform(_ request: URLRequest) throws -> RawHTTPResponse {
+    private func perform(_ request: URLRequest, timeout: TimeInterval) throws -> RawHTTPResponse {
         let semaphore = DispatchSemaphore(value: 0)
         let taskResult = LockedHTTPTaskResult()
 
@@ -212,6 +216,15 @@ public struct MCPHTTPProbe {
         ]
     }
 
+    private func pingRequest(id: Int) -> [String: Any] {
+        [
+            "jsonrpc": "2.0",
+            "id": id,
+            "method": "ping",
+            "params": [:]
+        ]
+    }
+
     private func resourcesListRequest(id: Int) -> [String: Any] {
         [
             "jsonrpc": "2.0",
@@ -228,6 +241,22 @@ public struct MCPHTTPProbe {
             "method": "prompts/list",
             "params": [:]
         ]
+    }
+
+    private func readPing(from url: URL, sessionID: String?) -> Bool? {
+        do {
+            let response = try sendJSONRPC(
+                pingRequest(id: 900),
+                to: url,
+                sessionID: sessionID,
+                expectsResponse: true,
+                requestTimeout: min(timeout, 0.5)
+            )
+            if errorMessage(in: response.object) != nil { return nil }
+            return response.object["result"] != nil
+        } catch {
+            return nil
+        }
     }
 
     private func readResources(from url: URL, sessionID: String?) throws -> ResourceProbePayload? {

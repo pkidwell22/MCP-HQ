@@ -190,6 +190,33 @@ final class ServerDiagnosticCheckerTests: XCTestCase {
         XCTAssertEqual(checker.issues(servers: [github, memory], sources: [source]), [])
     }
 
+    func testSameServerTargetAcrossDifferentSourcesDoesNotProduceDuplicateWarning() {
+        let claudeSource = ConfigSource(agent: .claude, path: "/tmp/claude.json")
+        let codexSource = ConfigSource(agent: .codex, path: "/tmp/codex.toml")
+        let claudeGithub = ServerDefinition(
+            id: "claude-github",
+            displayName: "github",
+            transport: .stdio,
+            command: "npx",
+            args: ["-y", "@modelcontextprotocol/server-github"],
+            sourcePath: claudeSource.path
+        )
+        let codexGithub = ServerDefinition(
+            id: "codex-github",
+            displayName: "github",
+            transport: .stdio,
+            command: "npx",
+            args: ["-y", "@modelcontextprotocol/server-github"],
+            sourcePath: codexSource.path
+        )
+        let checker = ServerDiagnosticChecker(commandExists: { _, _ in true })
+
+        XCTAssertEqual(
+            checker.issues(servers: [claudeGithub, codexGithub], sources: [claudeSource, codexSource]),
+            []
+        )
+    }
+
     func testDuplicateRemoteServerURLsProduceWarning() {
         let source = ConfigSource(agent: .gemini, path: "/tmp/gemini.json")
         let docs = ServerDefinition(
@@ -216,5 +243,87 @@ final class ServerDiagnosticCheckerTests: XCTestCase {
             message: "Duplicate MCP server target: docs and docs-copy both point to sse http://localhost:8181/sse. Rename/remove one entry to avoid duplicate tools."
         )])
     }
-}
 
+    func testDuplicateTargetWarningsRedactSecretsInArgsAndURLs() {
+        let source = ConfigSource(agent: .gemini, path: "/tmp/gemini.json")
+        let remote = ServerDefinition(
+            id: "remote",
+            displayName: "remote",
+            transport: .streamableHTTP,
+            url: "https://example.test/mcp?api_key=sk-url-secret-1234567890",
+            sourcePath: source.path
+        )
+        let remoteCopy = ServerDefinition(
+            id: "remote-copy",
+            displayName: "remote-copy",
+            transport: .streamableHTTP,
+            url: "https://example.test/mcp?api_key=sk-url-secret-1234567890",
+            sourcePath: source.path
+        )
+        let local = ServerDefinition(
+            id: "local",
+            displayName: "local",
+            transport: .stdio,
+            command: "mcp-server-example",
+            args: ["--token", "sk-arg-secret-1234567890"],
+            sourcePath: source.path
+        )
+        let localCopy = ServerDefinition(
+            id: "local-copy",
+            displayName: "local-copy",
+            transport: .stdio,
+            command: "mcp-server-example",
+            args: ["--token", "sk-arg-secret-1234567890"],
+            sourcePath: source.path
+        )
+        let checker = ServerDiagnosticChecker(commandExists: { _, _ in true })
+
+        let messages = checker.issues(servers: [remote, remoteCopy, local, localCopy], sources: [source]).map(\.message)
+
+        XCTAssertTrue(messages.contains { $0.contains("https://example.test/mcp?api_key=<redacted>") })
+        XCTAssertTrue(messages.contains { $0.contains("mcp-server-example --token <redacted>") })
+        XCTAssertFalse(messages.joined(separator: "\n").contains("sk-url-secret"))
+        XCTAssertFalse(messages.joined(separator: "\n").contains("sk-arg-secret"))
+    }
+
+    func testMissingKeychainSecretReferenceProducesPresenceWarningWithoutValue() throws {
+        let source = ConfigSource(agent: .claude, path: "/tmp/claude.json")
+        let reference = KeychainSecretReference.stable(serverID: "github", secretName: "GITHUB_TOKEN")
+        let server = ServerDefinition(
+            id: "github",
+            displayName: "github",
+            transport: .stdio,
+            command: "npx",
+            envBindings: ["GITHUB_TOKEN": reference.configValue],
+            sourcePath: source.path
+        )
+        let store = InMemorySecretStore()
+        let checker = ServerDiagnosticChecker(commandExists: { _, _ in true }, secretStore: store)
+
+        let issues = checker.issues(servers: [server], sources: [source])
+
+        XCTAssertEqual(issues, [ScanIssue(
+            source: source,
+            severity: .warning,
+            message: "Missing Keychain secret for github env var GITHUB_TOKEN (service com.mcphq.secrets, account github/GITHUB_TOKEN). Safe recovery: Re-enter the secret value and migrate/store it back to Keychain; do not paste plaintext into config. If the credential was intentionally removed, remove the keychain:// reference."
+        )])
+        XCTAssertFalse(issues.map(\.message).joined(separator: "\n").contains("secret-value"))
+    }
+
+    func testPresentKeychainHeaderReferenceProducesNoWarning() throws {
+        let source = ConfigSource(agent: .gemini, path: "/tmp/gemini.json")
+        let reference = KeychainSecretReference.stable(serverID: "remote", secretName: "header_Authorization")
+        let server = ServerDefinition(
+            id: "remote",
+            displayName: "remote",
+            transport: .streamableHTTP,
+            url: "https://example.test/mcp",
+            headers: ["Authorization": "Bearer \(reference.configValue)"],
+            sourcePath: source.path
+        )
+        let store = InMemorySecretStore(values: [reference: "secret-value-not-reported"])
+        let checker = ServerDiagnosticChecker(commandExists: { _, _ in true }, secretStore: store)
+
+        XCTAssertEqual(checker.issues(servers: [server], sources: [source]), [])
+    }
+}

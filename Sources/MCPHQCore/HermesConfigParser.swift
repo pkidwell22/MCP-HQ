@@ -30,7 +30,7 @@ public struct HermesConfigParser: Sendable {
 
             if let command, !command.isEmpty {
                 servers.append(ServerDefinition(
-                    id: serverBlock.name,
+                    id: ServerDefinition.canonicalID(agent: .hermes, sourcePath: sourcePath, name: serverBlock.name),
                     displayName: serverBlock.name,
                     transport: .stdio,
                     command: command,
@@ -43,7 +43,7 @@ public struct HermesConfigParser: Sendable {
 
             if let url, !url.isEmpty {
                 servers.append(ServerDefinition(
-                    id: serverBlock.name,
+                    id: ServerDefinition.canonicalID(agent: .hermes, sourcePath: sourcePath, name: serverBlock.name),
                     displayName: serverBlock.name,
                     transport: MCPTransport(configValue: fields.scalarValue(for: "transport") ?? fields.scalarValue(for: "type")),
                     url: url,

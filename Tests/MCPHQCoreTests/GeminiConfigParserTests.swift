@@ -8,16 +8,19 @@ final class GeminiConfigParserTests: XCTestCase {
 
         let servers = try GeminiConfigParser().parse(data: data, sourcePath: fixtureURL.path)
 
-        XCTAssertEqual(servers.map(\.id), ["browserbase", "context7"])
+        XCTAssertEqual(servers.map(\.displayName), ["browserbase", "context7"])
 
-        let remote = try XCTUnwrap(servers.first { $0.id == "browserbase" })
+        let remote = try XCTUnwrap(servers.first { $0.displayName == "browserbase" })
+        XCTAssertEqual(remote.id, ServerDefinition.canonicalID(agent: .gemini, sourcePath: fixtureURL.path, name: "browserbase"))
         XCTAssertEqual(remote.transport, .sse)
         XCTAssertEqual(remote.url, "http://127.0.0.1:8931/mcp")
         XCTAssertNil(remote.command)
-        XCTAssertEqual(remote.envBindings["Authorization"], "Bearer fake-secret-token-1234567890")
-        XCTAssertEqual(remote.redactedEnvBindings["Authorization"], "<redacted>")
+        XCTAssertEqual(remote.headers["Authorization"], "Bearer fake-secret-token-1234567890")
+        XCTAssertEqual(remote.redactedHeaders["Authorization"], "<redacted>")
+        XCTAssertEqual(remote.envBindings, [:])
 
-        let context7 = try XCTUnwrap(servers.first { $0.id == "context7" })
+        let context7 = try XCTUnwrap(servers.first { $0.displayName == "context7" })
+        XCTAssertEqual(context7.id, ServerDefinition.canonicalID(agent: .gemini, sourcePath: fixtureURL.path, name: "context7"))
         XCTAssertEqual(context7.transport, .stdio)
         XCTAssertEqual(context7.command, "npx")
         XCTAssertEqual(context7.args, ["-y", "@upstash/context7-mcp"])
@@ -41,7 +44,8 @@ final class GeminiConfigParserTests: XCTestCase {
 
         let servers = try GeminiConfigParser().parse(data: data, sourcePath: "/tmp/mcp_config.json")
 
-        XCTAssertEqual(servers.map(\.id), ["qmd"])
+        XCTAssertEqual(servers.map(\.displayName), ["qmd"])
+        XCTAssertEqual(servers.first?.id, ServerDefinition.canonicalID(agent: .gemini, sourcePath: "/tmp/mcp_config.json", name: "qmd"))
         XCTAssertEqual(servers.first?.command, "qmd")
         XCTAssertEqual(servers.first?.args, ["mcp"])
     }

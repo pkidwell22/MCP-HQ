@@ -9,7 +9,7 @@ final class ConfigScannerHermesTests: XCTestCase {
 
         let result = scanner.scan()
 
-        XCTAssertEqual(result.servers.map(\.id), ["filesystem", "github", "twozero_td"])
+        XCTAssertEqual(result.servers.map(\.displayName), ["filesystem", "github", "twozero_td"])
         XCTAssertEqual(result.sources, [source])
         XCTAssertEqual(result.issues, [])
     }

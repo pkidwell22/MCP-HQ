@@ -144,4 +144,25 @@ final class ServerProcessMatcherTests: XCTestCase {
         XCTAssertEqual(matches.map(\.processID), [27678])
         XCTAssertEqual(matches.map(\.confidence), [.high])
     }
+
+    func testConfiguredProcessMatchesAreAgentOwnedByDefault() {
+        let server = ServerDefinition(
+            id: "memory",
+            displayName: "Memory",
+            transport: .stdio,
+            command: "npx",
+            args: ["-y", "@modelcontextprotocol/server-memory"],
+            sourcePath: "/tmp/claude.json"
+        )
+        let process = MCPProcessSnapshot(
+            pid: 8801,
+            executableName: "npx",
+            commandLine: "npx -y @modelcontextprotocol/server-memory",
+            matchReason: "mcp command pattern"
+        )
+
+        let match = ServerProcessMatcher().matches(servers: [server], processes: [process]).first
+
+        XCTAssertEqual(match?.ownership, .agentOwned)
+    }
 }

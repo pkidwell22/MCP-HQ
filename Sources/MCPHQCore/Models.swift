@@ -27,11 +27,20 @@ public struct ServerDefinition: Codable, Equatable, Sendable, Identifiable {
     public let command: String?
     public let args: [String]
     public let url: String?
+    public let headers: [String: String]
     public let envBindings: [String: String]
     public let sourcePath: String
 
     public var redactedEnvBindings: [String: String] {
         envBindings.mapValues { SecretRedactor.redactIfSensitive($0) }
+    }
+
+    public var redactedHeaders: [String: String] {
+        headers.mapValues { SecretRedactor.redactIfSensitive(SecretRedactor.redactText($0)) }
+    }
+
+    public static func canonicalID(agent: AgentID, sourcePath: String, name: String) -> String {
+        "\(agent.rawValue):\(sourcePath):\(name)"
     }
 
     public init(
@@ -41,6 +50,7 @@ public struct ServerDefinition: Codable, Equatable, Sendable, Identifiable {
         command: String? = nil,
         args: [String] = [],
         url: String? = nil,
+        headers: [String: String] = [:],
         envBindings: [String: String] = [:],
         sourcePath: String
     ) {
@@ -50,12 +60,18 @@ public struct ServerDefinition: Codable, Equatable, Sendable, Identifiable {
         self.command = command
         self.args = args
         self.url = url
+        self.headers = headers
         self.envBindings = envBindings
         self.sourcePath = sourcePath
     }
 }
 
 public enum SecretRedactor {
+    private static let sensitiveArgumentNames = Set([
+        "--token", "--api-key", "--api_key", "--key", "--secret", "--password", "--auth", "--authorization"
+    ])
+    private static let sensitiveKeyParts = ["token", "api_key", "apikey", "key", "secret", "password", "authorization", "auth"]
+
     public static func redactIfSensitive(_ value: String) -> String {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.hasPrefix("${") && trimmed.hasSuffix("}") { return value }
@@ -90,5 +106,129 @@ public enum SecretRedactor {
             }
             return regex.stringByReplacingMatches(in: current, range: range, withTemplate: "<redacted>")
         }
+    }
+
+    public static func redactConfigText(_ value: String) -> String {
+        let literalPatterns = [
+            #"ghp_[A-Za-z0-9_]+"#,
+            #"github_pat_[A-Za-z0-9_]+"#,
+            #"sk-[A-Za-z0-9_-]+"#,
+            #"xox[abp]-[A-Za-z0-9-]+"#,
+        ]
+        let redactedLiterals = literalPatterns.reduce(value) { current, pattern in
+            guard let regex = try? NSRegularExpression(pattern: pattern) else { return current }
+            let range = NSRange(current.startIndex..<current.endIndex, in: current)
+            return regex.stringByReplacingMatches(in: current, range: range, withTemplate: "<redacted>")
+        }
+        return redactedLiterals
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map { redactSensitiveConfigLine(String($0)) }
+            .joined(separator: "\n")
+    }
+
+    public static func redactCommandArguments(_ values: [String]) -> [String] {
+        var tokens = values
+        var index = tokens.startIndex
+        while index < tokens.endIndex {
+            let token = tokens[index]
+            let lowercased = token.lowercased()
+            if sensitiveArgumentNames.contains(lowercased), index + 1 < tokens.endIndex {
+                tokens[index + 1] = "<redacted>"
+                index += 2
+                continue
+            }
+
+            if let equalsIndex = token.firstIndex(of: "=") {
+                let key = token[..<equalsIndex].lowercased()
+                let normalizedKey = key.replacingOccurrences(of: "-", with: "_")
+                if sensitiveKeyParts.contains(where: { normalizedKey.contains($0) }) {
+                    tokens[index] = String(token[..<token.index(after: equalsIndex)]) + "<redacted>"
+                } else {
+                    tokens[index] = redactIfSensitive(redactText(token))
+                }
+            } else {
+                tokens[index] = redactIfSensitive(redactText(token))
+            }
+            index += 1
+        }
+        return tokens
+    }
+
+    private static func redactSensitiveConfigLine(_ line: String) -> String {
+        guard !line.isEmpty else { return line }
+        var diffPrefix = ""
+        var body = line
+        if let first = body.first, first == "+" || first == "-" {
+            diffPrefix = String(first)
+            body.removeFirst()
+        }
+
+        guard let separatorIndex = body.firstIndex(where: { $0 == ":" || $0 == "=" }) else {
+            return line
+        }
+        let keyPart = String(body[..<separatorIndex])
+        guard configKeyLooksSensitive(keyPart) else { return line }
+
+        let afterSeparator = body.index(after: separatorIndex)
+        let prefix = String(body[..<afterSeparator])
+        let valuePart = String(body[afterSeparator...])
+        guard !configValueLooksReference(valuePart) else { return line }
+
+        return diffPrefix + prefix + redactedConfigValue(valuePart)
+    }
+
+    private static func configKeyLooksSensitive(_ value: String) -> Bool {
+        let trimmed = value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+            .replacingOccurrences(of: "-", with: "_")
+            .lowercased()
+        return sensitiveKeyParts.contains { trimmed.contains($0) }
+    }
+
+    private static func configValueLooksReference(_ value: String) -> Bool {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        let unquoted: String
+        if trimmed.count >= 2,
+           let first = trimmed.first,
+           let last = trimmed.last,
+           (first == "\"" || first == "'"),
+           first == last {
+            unquoted = String(trimmed.dropFirst().dropLast())
+        } else {
+            unquoted = trimmed
+        }
+        return unquoted.hasPrefix("$")
+            || unquoted.contains("${")
+            || unquoted.hasPrefix("keychain://")
+            || unquoted.contains("keychain://")
+    }
+
+    private static func redactedConfigValue(_ value: String) -> String {
+        let leadingWhitespace = value.prefix { $0.isWhitespace }
+        let remainder = String(value.dropFirst(leadingWhitespace.count))
+        guard let first = remainder.first else { return value }
+
+        if first == "\"" || first == "'" {
+            let quote = first
+            let contentStart = remainder.index(after: remainder.startIndex)
+            if let closeIndex = remainder[contentStart...].firstIndex(of: quote) {
+                let content = String(remainder[contentStart..<closeIndex])
+                let suffix = String(remainder[remainder.index(after: closeIndex)...])
+                let replacement = content.lowercased().hasPrefix("bearer ")
+                    ? "Bearer <redacted>"
+                    : "<redacted>"
+                return String(leadingWhitespace) + String(quote) + replacement + String(quote) + suffix
+            }
+            return String(leadingWhitespace) + String(quote) + "<redacted>" + String(quote)
+        }
+
+        let suffixStart = remainder.firstIndex(where: { $0 == "," || $0 == "#" })
+        let suffix = suffixStart.map { String(remainder[$0...]) } ?? ""
+        let content = suffixStart.map { String(remainder[..<$0]) } ?? remainder
+        let replacement = content.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().hasPrefix("bearer ")
+            ? "\"Bearer <redacted>\""
+            : "\"<redacted>\""
+        return String(leadingWhitespace) + replacement + suffix
     }
 }

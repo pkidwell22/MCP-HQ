@@ -3,18 +3,22 @@ import Foundation
 public struct ServerDiagnosticChecker {
     private let commandExists: (String, [String: String]) -> Bool
     private let environmentValue: (String) -> String?
+    private let secretStore: SecretStore?
 
-    public init() {
+    public init(secretStore: SecretStore? = nil) {
         self.commandExists = ServerDiagnosticChecker.defaultCommandExists
         self.environmentValue = { ProcessInfo.processInfo.environment[$0] }
+        self.secretStore = secretStore
     }
 
     public init(
         commandExists: @escaping (String, [String: String]) -> Bool,
-        environmentValue: @escaping (String) -> String? = { ProcessInfo.processInfo.environment[$0] }
+        environmentValue: @escaping (String) -> String? = { ProcessInfo.processInfo.environment[$0] },
+        secretStore: SecretStore? = nil
     ) {
         self.commandExists = commandExists
         self.environmentValue = environmentValue
+        self.secretStore = secretStore
     }
 
     public func issues(servers: [ServerDefinition], sources: [ConfigSource]) -> [ScanIssue] {
@@ -43,6 +47,13 @@ public struct ServerDiagnosticChecker {
             }
         }
 
+        for key in server.headers.keys.sorted() {
+            guard let value = server.headers[key] else { continue }
+            if let issue = headerIssue(server: server, source: source, key: key, value: value) {
+                issues.append(issue)
+            }
+        }
+
         return issues
     }
 
@@ -58,6 +69,10 @@ public struct ServerDiagnosticChecker {
             )
         }
 
+        if let issue = keychainReferenceIssue(server: server, source: source, fieldDescription: "env var", key: key, value: trimmedValue) {
+            return issue
+        }
+
         guard let referencedName = referencedEnvironmentName(from: trimmedValue) else { return nil }
         let referencedValue = environmentValue(referencedName)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard referencedValue.isEmpty else { return nil }
@@ -65,6 +80,38 @@ public struct ServerDiagnosticChecker {
             source: source,
             severity: .warning,
             message: "Missing env var for \(server.displayName): \(referencedName) referenced by \(key). Add it to Keychain or configure the environment before launching this MCP server."
+        )
+    }
+
+    private func headerIssue(server: ServerDefinition, source: ConfigSource, key: String, value: String) -> ScanIssue? {
+        guard isSensitiveEnvKey(key) || SecretRedactor.redactText(value) != value else { return nil }
+        let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if trimmedValue.isEmpty {
+            return ScanIssue(
+                source: source,
+                severity: .warning,
+                message: "Missing header secret for \(server.displayName): \(key). Add it to Keychain before launching this MCP server."
+            )
+        }
+
+        return keychainReferenceIssue(server: server, source: source, fieldDescription: "header", key: key, value: trimmedValue)
+    }
+
+    private func keychainReferenceIssue(server: ServerDefinition, source: ConfigSource, fieldDescription: String, key: String, value: String) -> ScanIssue? {
+        guard let reference = KeychainSecretReference.parse(from: value), let secretStore else { return nil }
+        let state = SecretRecoveryReporter(store: secretStore).state(
+            sourcePath: source.path,
+            serverName: server.displayName,
+            fieldKind: fieldDescription == "header" ? .header : .environment,
+            fieldName: key,
+            reference: reference
+        )
+        guard state.recoveryStatus != .present else { return nil }
+        return ScanIssue(
+            source: source,
+            severity: .warning,
+            message: state.diagnosticMessage(serverDisplayName: server.displayName, fieldDescription: fieldDescription)
         )
     }
 
@@ -87,7 +134,7 @@ public struct ServerDiagnosticChecker {
     private func duplicateTargetIssues(servers: [ServerDefinition], sourcesByPath: [String: ConfigSource]) -> [ScanIssue] {
         let grouped = Dictionary(grouping: servers.compactMap { server -> DuplicateTarget? in
             guard let target = duplicateTarget(for: server) else { return nil }
-            return DuplicateTarget(server: server, key: target.key, display: target.display)
+            return DuplicateTarget(server: server, key: "\(server.sourcePath)\u{0}\(target.key)", display: target.display)
         }, by: \.key)
 
         return grouped.values
@@ -110,12 +157,12 @@ public struct ServerDiagnosticChecker {
         case .stdio:
             guard let command = server.command?.trimmingCharacters(in: .whitespacesAndNewlines), !command.isEmpty else { return nil }
             let args = server.args.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
-            let display = ([command] + args).joined(separator: " ")
+            let display = SecretRedactor.redactCommandArguments([command] + args).joined(separator: " ")
             let key = (["stdio", command] + args).joined(separator: "\u{0}")
             return (key, "stdio \(display)")
         case .http, .sse, .streamableHTTP:
             guard let url = server.url?.trimmingCharacters(in: .whitespacesAndNewlines), !url.isEmpty else { return nil }
-            return ("\(server.transport.rawValue)\u{0}\(url)", "\(server.transport.rawValue) \(url)")
+            return ("\(server.transport.rawValue)\u{0}\(url)", "\(server.transport.rawValue) \(SecretRedactor.redactText(url))")
         }
     }
 

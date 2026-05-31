@@ -3,10 +3,12 @@ import Foundation
 public struct MCPHTTPProbe {
     private let timeout: TimeInterval
     private let session: URLSession
+    private let processEnvironment: [String: String]
 
-    public init(timeout: TimeInterval = 2, session: URLSession = .shared) {
+    public init(timeout: TimeInterval = 2, session: URLSession = .shared, processEnvironment: [String: String] = ProcessInfo.processInfo.environment) {
         self.timeout = timeout
         self.session = session
+        self.processEnvironment = processEnvironment
     }
 
     public func probe(servers: [ServerDefinition]) -> [MCPProbeResult] {
@@ -26,11 +28,13 @@ public struct MCPHTTPProbe {
               let url = URL(string: urlText) else {
             return MCPProbeResult(serverID: server.id, status: .error, message: "Missing or invalid HTTP MCP URL.")
         }
+        let configuredHeaders = resolvedHeaders(server.headers)
 
         do {
             let initialize = try sendJSONRPC(
                 initializeRequest(id: 1),
                 to: url,
+                headers: configuredHeaders,
                 sessionID: nil,
                 expectsResponse: true
             )
@@ -41,14 +45,16 @@ public struct MCPHTTPProbe {
             _ = try sendJSONRPC(
                 initializedNotification(),
                 to: url,
+                headers: configuredHeaders,
                 sessionID: initialize.sessionID,
                 expectsResponse: false
             )
-            let pingSucceeded = readPing(from: url, sessionID: initialize.sessionID)
+            let pingSucceeded = readPing(from: url, headers: configuredHeaders, sessionID: initialize.sessionID)
 
             let toolsResponse = try sendJSONRPC(
                 toolsListRequest(id: 2),
                 to: url,
+                headers: configuredHeaders,
                 sessionID: initialize.sessionID,
                 expectsResponse: true
             )
@@ -63,10 +69,10 @@ public struct MCPHTTPProbe {
             let toolNames = tools.compactMap { $0["name"] as? String }
             let toolDetails = tools.compactMap(makeToolDetail)
             let resourceProbe = supportsResources(in: initialize.object)
-                ? try readResources(from: url, sessionID: initialize.sessionID)
+                ? try readResources(from: url, headers: configuredHeaders, sessionID: initialize.sessionID)
                 : nil
             let promptProbe = supportsPrompts(in: initialize.object)
-                ? try readPrompts(from: url, sessionID: initialize.sessionID)
+                ? try readPrompts(from: url, headers: configuredHeaders, sessionID: initialize.sessionID)
                 : nil
             return MCPProbeResult(
                 serverID: server.id,
@@ -91,6 +97,7 @@ public struct MCPHTTPProbe {
     private func sendJSONRPC(
         _ object: [String: Any],
         to url: URL,
+        headers: [String: String],
         sessionID: String?,
         expectsResponse: Bool,
         requestTimeout: TimeInterval? = nil
@@ -101,6 +108,9 @@ public struct MCPHTTPProbe {
         let effectiveTimeout = requestTimeout ?? timeout
         request.timeoutInterval = effectiveTimeout
         request.httpBody = body
+        for (key, value) in headers {
+            request.setValue(value, forHTTPHeaderField: key)
+        }
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json, text/event-stream", forHTTPHeaderField: "Accept")
         request.setValue("2024-11-05", forHTTPHeaderField: "Mcp-Protocol-Version")
@@ -243,11 +253,12 @@ public struct MCPHTTPProbe {
         ]
     }
 
-    private func readPing(from url: URL, sessionID: String?) -> Bool? {
+    private func readPing(from url: URL, headers: [String: String], sessionID: String?) -> Bool? {
         do {
             let response = try sendJSONRPC(
                 pingRequest(id: 900),
                 to: url,
+                headers: headers,
                 sessionID: sessionID,
                 expectsResponse: true,
                 requestTimeout: min(timeout, 0.5)
@@ -259,10 +270,11 @@ public struct MCPHTTPProbe {
         }
     }
 
-    private func readResources(from url: URL, sessionID: String?) throws -> ResourceProbePayload? {
+    private func readResources(from url: URL, headers: [String: String], sessionID: String?) throws -> ResourceProbePayload? {
         let response = try sendJSONRPC(
             resourcesListRequest(id: 3),
             to: url,
+            headers: headers,
             sessionID: sessionID,
             expectsResponse: true
         )
@@ -272,10 +284,11 @@ public struct MCPHTTPProbe {
         return ResourceProbePayload(resources: resources)
     }
 
-    private func readPrompts(from url: URL, sessionID: String?) throws -> PromptProbePayload? {
+    private func readPrompts(from url: URL, headers: [String: String], sessionID: String?) throws -> PromptProbePayload? {
         let response = try sendJSONRPC(
             promptsListRequest(id: 4),
             to: url,
+            headers: headers,
             sessionID: sessionID,
             expectsResponse: true
         )
@@ -361,6 +374,26 @@ public struct MCPHTTPProbe {
 
     private func sanitize(_ value: String) -> String {
         SecretRedactor.redactText(value)
+    }
+
+    private func resolvedHeaders(_ bindings: [String: String]) -> [String: String] {
+        var headers: [String: String] = [:]
+        for (key, value) in bindings {
+            let headerName = key.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !headerName.isEmpty else { continue }
+            headers[headerName] = resolvedEnvValue(value)
+        }
+        return headers
+    }
+
+    private func resolvedEnvValue(_ value: String) -> String {
+        if value.hasPrefix("${"), value.hasSuffix("}"), value.count > 3 {
+            return processEnvironment[String(value.dropFirst(2).dropLast())] ?? ""
+        }
+        if value.hasPrefix("$"), value.count > 1 {
+            return processEnvironment[String(value.dropFirst())] ?? ""
+        }
+        return value
     }
 }
 

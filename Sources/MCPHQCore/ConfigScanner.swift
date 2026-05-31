@@ -1,9 +1,13 @@
 import Foundation
 
 public enum AgentID: String, Codable, Equatable, Sendable {
+    case antigravity
     case claude
+    case codex
     case gemini
     case hermes
+    case opencode
+    case pi
     case cursor
     case windsurf
     case `continue`
@@ -19,6 +23,30 @@ public struct ConfigSource: Codable, Equatable, Sendable, Identifiable {
     public init(agent: AgentID, path: String) {
         self.agent = agent
         self.path = path
+    }
+}
+
+public enum ConfigSourceState: String, Codable, Equatable, Sendable {
+    case missing
+    case found
+    case parsed
+    case unsupported
+    case malformed
+    case noServers = "no_servers"
+}
+
+public struct ConfigSourceHealth: Codable, Equatable, Sendable, Identifiable {
+    public var id: String { source.id }
+    public let source: ConfigSource
+    public let state: ConfigSourceState
+    public let serverCount: Int
+    public let message: String
+
+    public init(source: ConfigSource, state: ConfigSourceState, serverCount: Int = 0, message: String) {
+        self.source = source
+        self.state = state
+        self.serverCount = serverCount
+        self.message = message
     }
 }
 
@@ -145,6 +173,7 @@ public struct MCPProbeResult: Codable, Equatable, Sendable, Identifiable {
 public struct ScanResult: Codable, Equatable, Sendable {
     public let servers: [ServerDefinition]
     public let sources: [ConfigSource]
+    public let sourceHealth: [ConfigSourceHealth]
     public let issues: [ScanIssue]
     public let processes: [MCPProcessSnapshot]
     public let processMatches: [ServerProcessMatch]
@@ -153,6 +182,7 @@ public struct ScanResult: Codable, Equatable, Sendable {
     public init(
         servers: [ServerDefinition],
         sources: [ConfigSource],
+        sourceHealth: [ConfigSourceHealth] = [],
         issues: [ScanIssue] = [],
         processes: [MCPProcessSnapshot] = [],
         processMatches: [ServerProcessMatch] = [],
@@ -160,6 +190,7 @@ public struct ScanResult: Codable, Equatable, Sendable {
     ) {
         self.servers = servers
         self.sources = sources
+        self.sourceHealth = sourceHealth
         self.issues = issues
         self.processes = processes
         self.processMatches = processMatches
@@ -177,40 +208,59 @@ public struct ConfigScanner: Sendable {
     public func scan() -> ScanResult {
         var servers: [ServerDefinition] = []
         var seenSources: [ConfigSource] = []
+        var sourceHealth: [ConfigSourceHealth] = []
         var issues: [ScanIssue] = []
 
         for source in configSources {
-            guard FileManager.default.fileExists(atPath: source.path) else { continue }
+            guard FileManager.default.fileExists(atPath: source.path) else {
+                sourceHealth.append(ConfigSourceHealth(
+                    source: source,
+                    state: .missing,
+                    message: "\(AgentRegistry.displayName(for: source.agent)) config missing"
+                ))
+                continue
+            }
             do {
                 let data = try Data(contentsOf: URL(fileURLWithPath: source.path))
                 try ConfigSyntaxValidator.validate(data: data, agent: source.agent)
-                let parsed: [ServerDefinition]
-                switch source.agent {
-                case .claude:
-                    parsed = try ClaudeConfigParser().parse(data: data, sourcePath: source.path)
-                case .gemini:
-                    parsed = try GeminiConfigParser().parse(data: data, sourcePath: source.path)
-                case .hermes:
-                    parsed = try HermesConfigParser().parse(data: data, sourcePath: source.path)
-                case .cursor, .windsurf, .continue, .goose, .unknown:
-                    parsed = []
+                let parser = AgentConfigParser()
+                guard parser.supports(source.agent) else {
                     issues.append(ScanIssue(
                         source: source,
                         severity: .warning,
                         message: "Unsupported agent config parser: \(source.agent.rawValue)"
                     ))
+                    sourceHealth.append(ConfigSourceHealth(
+                        source: source,
+                        state: .unsupported,
+                        message: "Found config • parser not implemented"
+                    ))
+                    seenSources.append(source)
+                    continue
                 }
+                let parsed = try parser.parse(data: data, source: source)
                 servers.append(contentsOf: parsed)
                 seenSources.append(source)
+                sourceHealth.append(ConfigSourceHealth(
+                    source: source,
+                    state: parsed.isEmpty ? .noServers : .parsed,
+                    serverCount: parsed.count,
+                    message: parsed.isEmpty ? "Found config • no MCP servers" : "Found config • parsed \(parsed.count) \(parsed.count == 1 ? "server" : "servers")"
+                ))
             } catch {
                 issues.append(ScanIssue(
                     source: source,
                     severity: .error,
                     message: String(describing: error)
                 ))
+                sourceHealth.append(ConfigSourceHealth(
+                    source: source,
+                    state: .malformed,
+                    message: "Found config • malformed: \(String(describing: error))"
+                ))
             }
         }
 
-        return ScanResult(servers: servers, sources: seenSources, issues: issues)
+        return ScanResult(servers: servers, sources: seenSources, sourceHealth: sourceHealth, issues: issues)
     }
 }

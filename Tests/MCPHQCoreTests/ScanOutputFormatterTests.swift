@@ -26,6 +26,14 @@ final class ScanOutputFormatterTests: XCTestCase {
                 ),
             ],
             sources: [ConfigSource(agent: .claude, path: "/tmp/claude.json")],
+            sourceHealth: [
+                ConfigSourceHealth(
+                    source: ConfigSource(agent: .claude, path: "/tmp/claude.json"),
+                    state: .parsed,
+                    serverCount: 1,
+                    message: "Found config • parsed 1 server"
+                )
+            ],
             issues: [ScanIssue(
                 source: ConfigSource(agent: .gemini, path: "/tmp/bad.json"),
                 severity: .error,
@@ -51,6 +59,8 @@ final class ScanOutputFormatterTests: XCTestCase {
         XCTAssertTrue(output.contains("Servers: 2"))
         XCTAssertTrue(output.contains("Processes: 1"))
         XCTAssertTrue(output.contains("Issues: 1"))
+        XCTAssertTrue(output.contains("Sources:"))
+        XCTAssertTrue(output.contains("Claude parsed: Found config • parsed 1 server"))
         XCTAssertTrue(output.contains("github"))
         XCTAssertTrue(output.contains("transport: stdio"))
         XCTAssertTrue(output.contains("command: mcp-server-github"))
@@ -91,9 +101,47 @@ final class ScanOutputFormatterTests: XCTestCase {
 
         XCTAssertEqual(env["GITHUB_TOKEN"], "<redacted>")
         XCTAssertNotNil(object?["sources"])
+        XCTAssertNotNil(object?["sourceHealth"])
         XCTAssertNotNil(object?["issues"])
         XCTAssertNotNil(object?["processMatches"])
         XCTAssertFalse(output.contains("ghp_ab...3456"))
+    }
+
+    func testFormatterRedactsSecretsInCommandArgumentsAndURLs() throws {
+        let result = ScanResult(
+            servers: [ServerDefinition(
+                id: "remote",
+                displayName: "remote",
+                transport: .streamableHTTP,
+                command: "mcp-server-example",
+                args: ["--token", "sk-config-secret-1234567890", "--mode", "readonly", "api_key=shortsecret"],
+                url: "https://example.test/mcp?token=sk-url-secret-1234567890",
+                headers: ["Authorization": "Bearer sk-header-secret-1234567890"],
+                sourcePath: "/tmp/config.json"
+            )],
+            sources: [ConfigSource(agent: .gemini, path: "/tmp/config.json")]
+        )
+
+        let text = ScanOutputFormatter().formatText(result)
+        XCTAssertTrue(text.contains("args: --token <redacted> --mode readonly api_key=<redacted>"), text)
+        XCTAssertTrue(text.contains("url: https://example.test/mcp?token=<redacted>"), text)
+        XCTAssertTrue(text.contains("Authorization=Bearer <redacted>"), text)
+        XCTAssertFalse(text.contains("sk-config-secret"), text)
+        XCTAssertFalse(text.contains("shortsecret"), text)
+        XCTAssertFalse(text.contains("sk-url-secret"), text)
+        XCTAssertFalse(text.contains("sk-header-secret"), text)
+
+        let json = try ScanOutputFormatter().formatJSON(result)
+        let data = try XCTUnwrap(json.data(using: .utf8))
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let servers = try XCTUnwrap(object["servers"] as? [[String: Any]])
+        XCTAssertEqual(servers.first?["args"] as? [String], ["--token", "<redacted>", "--mode", "readonly", "api_key=<redacted>"])
+        XCTAssertEqual(servers.first?["url"] as? String, "https://example.test/mcp?token=<redacted>")
+        XCTAssertEqual((servers.first?["headers"] as? [String: String])?["Authorization"], "Bearer <redacted>")
+        XCTAssertFalse(json.contains("sk-config-secret"), json)
+        XCTAssertFalse(json.contains("shortsecret"), json)
+        XCTAssertFalse(json.contains("sk-url-secret"), json)
+        XCTAssertFalse(json.contains("sk-header-secret"), json)
     }
 
     func testFormatterPrintsProbeToolCounts() throws {

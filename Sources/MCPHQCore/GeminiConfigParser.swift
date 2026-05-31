@@ -24,7 +24,7 @@ public struct GeminiConfigParser: Sendable {
 
             if let command = server.command, !command.isEmpty {
                 servers.append(ServerDefinition(
-                    id: name,
+                    id: ServerDefinition.canonicalID(agent: .gemini, sourcePath: sourcePath, name: name),
                     displayName: name,
                     transport: .stdio,
                     command: command,
@@ -37,12 +37,13 @@ public struct GeminiConfigParser: Sendable {
 
             if let url = server.remoteURL, !url.isEmpty {
                 servers.append(ServerDefinition(
-                    id: name,
+                    id: ServerDefinition.canonicalID(agent: .gemini, sourcePath: sourcePath, name: name),
                     displayName: name,
                     transport: MCPTransport(configValue: server.transport ?? server.type),
                     args: [],
                     url: url,
-                    envBindings: server.remoteBindings,
+                    headers: server.headers ?? [:],
+                    envBindings: server.env ?? [:],
                     sourcePath: sourcePath
                 ))
                 continue
@@ -93,11 +94,4 @@ private struct GeminiMCPServer: Decodable {
         url ?? httpUrl ?? serverUrl
     }
 
-    var remoteBindings: [String: String] {
-        var bindings = env ?? [:]
-        for (key, value) in headers ?? [:] {
-            bindings[key] = value
-        }
-        return bindings
-    }
 }

@@ -19,7 +19,7 @@ final class ConfigScannerErrorTests: XCTestCase {
 
         let result = scanner.scan()
 
-        XCTAssertEqual(result.servers.map(\.id), ["github", "qmd"])
+        XCTAssertEqual(result.servers.map(\.displayName), ["github", "qmd"])
         XCTAssertEqual(result.sources, [ConfigSource(agent: .claude, path: goodURL.path)])
         XCTAssertEqual(result.issues.count, 1)
         XCTAssertEqual(result.issues[0].source, ConfigSource(agent: .claude, path: badURL.path))

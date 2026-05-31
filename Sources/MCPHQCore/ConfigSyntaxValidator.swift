@@ -17,11 +17,11 @@ public enum ConfigSyntaxError: Error, Equatable, CustomStringConvertible, Sendab
 public enum ConfigSyntaxValidator {
     public static func validate(data: Data, agent: AgentID) throws {
         switch agent {
-        case .claude, .gemini:
+        case .antigravity, .claude, .gemini, .opencode, .pi, .cursor, .windsurf, .continue:
             try validateJSON(data: data)
-        case .hermes:
+        case .hermes, .goose:
             try validateYAML(data: data)
-        case .cursor, .windsurf, .continue, .goose, .unknown:
+        case .codex, .unknown:
             return
         }
     }

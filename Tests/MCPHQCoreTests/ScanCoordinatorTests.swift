@@ -14,7 +14,7 @@ final class ScanCoordinatorTests: XCTestCase {
 
         let result = coordinator.scan(sources: [source], includeProbes: false)
 
-        XCTAssertEqual(result.servers.map(\.id), ["memory"])
+        XCTAssertEqual(result.servers.map(\.displayName), ["memory"])
         XCTAssertTrue(result.probeResults.isEmpty)
     }
 
@@ -31,7 +31,7 @@ final class ScanCoordinatorTests: XCTestCase {
         let result = coordinator.scan(sources: [source], includeProbes: true)
 
         let probe = try XCTUnwrap(result.probeResults.first)
-        XCTAssertEqual(probe.serverID, "memory")
+        XCTAssertEqual(probe.serverID, ServerDefinition.canonicalID(agent: .claude, sourcePath: configURL.path, name: "memory"))
         XCTAssertEqual(probe.status, .healthy)
         XCTAssertEqual(probe.toolCount, 2)
     }
@@ -49,10 +49,28 @@ final class ScanCoordinatorTests: XCTestCase {
         let result = coordinator.scan(sources: [source], includeProbes: false)
 
         XCTAssertEqual(result.processes.first?.pid, 1234)
-        XCTAssertEqual(result.processMatches.first?.serverID, "memory")
+        XCTAssertEqual(result.processMatches.first?.serverID, ServerDefinition.canonicalID(agent: .claude, sourcePath: configURL.path, name: "memory"))
         XCTAssertTrue(result.issues.contains { issue in
             issue.severity == .warning && issue.message.contains("Command not found for memory")
         })
+    }
+
+    func testScanPreservesSourceHealthFromConfigScanner() throws {
+        let configURL = try makeClaudeConfig(command: "npx")
+        let missingURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathComponent("missing.json")
+        let coordinator = ScanCoordinator(
+            processScanner: MCPProcessScanner(processProvider: { [] }),
+            probeProvider: { _ in [] }
+        )
+
+        let result = coordinator.scan(sources: [
+            ConfigSource(agent: .claude, path: configURL.path),
+            ConfigSource(agent: .cursor, path: missingURL.path),
+        ])
+
+        XCTAssertEqual(result.sourceHealth.map(\.state), [.parsed, .missing])
     }
 
     private func makeClaudeConfig(command: String) throws -> URL {

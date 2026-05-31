@@ -38,6 +38,52 @@ final class MCPProcessScannerTests: XCTestCase {
         ])
     }
 
+    func testScannerParsesMacOSPSOutputWithCPUAndMemory() {
+        let output = """
+          501   3.5  2048 /usr/bin/python3 -m some_mcp_server
+         1201   0.0 16384 npx -y @modelcontextprotocol/server-filesystem /Users/example
+        """
+
+        let processes = MCPProcessScanner.parsePSOutput(output)
+
+        XCTAssertEqual(processes, [
+            RawProcessSnapshot(pid: 501, commandLine: "/usr/bin/python3 -m some_mcp_server", cpuPercent: 3.5, memoryBytes: 2_097_152),
+            RawProcessSnapshot(pid: 1201, commandLine: "npx -y @modelcontextprotocol/server-filesystem /Users/example", cpuPercent: 0.0, memoryBytes: 16_777_216),
+        ])
+    }
+
+    func testScannerPropagatesCPUAndMemoryToSnapshots() {
+        let scanner = MCPProcessScanner(processProvider: {
+            [
+                RawProcessSnapshot(
+                    pid: 301,
+                    commandLine: "npx -y @modelcontextprotocol/server-memory",
+                    cpuPercent: 1.25,
+                    memoryBytes: 42_000
+                ),
+            ]
+        })
+
+        let process = scanner.scan().first
+
+        XCTAssertEqual(process?.cpuPercent, 1.25)
+        XCTAssertEqual(process?.memoryBytes, 42_000)
+    }
+
+    func testScannerIgnoresDiagnosticSearchCommands() {
+        let scanner = MCPProcessScanner(processProvider: {
+            [
+                RawProcessSnapshot(pid: 401, commandLine: "/bin/bash -lc ps aux | rg -i 'mcp|modelcontextprotocol|qmd'"),
+                RawProcessSnapshot(pid: 402, commandLine: "rg -i mcp Sources/MCPHQCore"),
+                RawProcessSnapshot(pid: 403, commandLine: "/bin/bash -lc swift run mcphq scan"),
+                RawProcessSnapshot(pid: 404, commandLine: "/Users/example/MCP-HQ/.build/debug/MCPHQPackageTests.xctest/Contents/MacOS/MCPHQPackageTests --filter MCPProcessScannerTests"),
+                RawProcessSnapshot(pid: 405, commandLine: "npx -y @modelcontextprotocol/server-memory"),
+            ]
+        })
+
+        XCTAssertEqual(scanner.scan().map(\.pid), [405])
+    }
+
     func testScannerRedactsEqualsFormSensitiveArgumentsEvenWhenValuesLookNonTokenLike() {
         let scanner = MCPProcessScanner(processProvider: {
             [

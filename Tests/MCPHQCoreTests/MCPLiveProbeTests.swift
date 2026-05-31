@@ -47,4 +47,71 @@ final class MCPLiveProbeTests: XCTestCase {
         XCTAssertEqual(results[2].status, .skipped)
         XCTAssertTrue(results[2].message.contains("Legacy SSE probing is not implemented"), results[2].message)
     }
+
+    func testReusesProbeResultsForSameTargetAcrossDifferentSources() {
+        let claudeServer = ServerDefinition(
+            id: "claude-memory",
+            displayName: "memory",
+            transport: .stdio,
+            command: "npx",
+            args: ["-y", "@modelcontextprotocol/server-memory"],
+            sourcePath: "/tmp/claude.json"
+        )
+        let codexServer = ServerDefinition(
+            id: "codex-memory",
+            displayName: "memory",
+            transport: .stdio,
+            command: "npx",
+            args: ["-y", "@modelcontextprotocol/server-memory"],
+            sourcePath: "/tmp/codex.toml"
+        )
+        var probedIDs: [String] = []
+        let probe = MCPLiveProbe(
+            stdioProbe: { servers in
+                probedIDs = servers.map(\.id)
+                return servers.map { MCPProbeResult(serverID: $0.id, status: .healthy, toolCount: 9, message: "memory ok") }
+            },
+            httpProbe: { _ in [] }
+        )
+
+        let results = probe.probe(servers: [claudeServer, codexServer])
+
+        XCTAssertEqual(probedIDs, ["claude-memory"])
+        XCTAssertEqual(results.map(\.serverID), ["claude-memory", "codex-memory"])
+        XCTAssertEqual(results.map(\.status), [.healthy, .healthy])
+        XCTAssertEqual(results.map(\.toolCount), [9, 9])
+    }
+
+    func testDoesNotReuseProbeResultWhenEnvironmentDiffers() {
+        let first = ServerDefinition(
+            id: "first-github",
+            displayName: "github",
+            transport: .stdio,
+            command: "npx",
+            args: ["-y", "@modelcontextprotocol/server-github"],
+            envBindings: ["GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_PERSONAL_ACCESS_TOKEN}"],
+            sourcePath: "/tmp/first.json"
+        )
+        let second = ServerDefinition(
+            id: "second-github",
+            displayName: "github",
+            transport: .stdio,
+            command: "npx",
+            args: ["-y", "@modelcontextprotocol/server-github"],
+            envBindings: ["GITHUB_PERSONAL_ACCESS_TOKEN": "${OTHER_GITHUB_TOKEN}"],
+            sourcePath: "/tmp/second.json"
+        )
+        var probedIDs: [String] = []
+        let probe = MCPLiveProbe(
+            stdioProbe: { servers in
+                probedIDs = servers.map(\.id)
+                return servers.map { MCPProbeResult(serverID: $0.id, status: .healthy, toolCount: 26, message: "github ok") }
+            },
+            httpProbe: { _ in [] }
+        )
+
+        _ = probe.probe(servers: [first, second])
+
+        XCTAssertEqual(probedIDs, ["first-github", "second-github"])
+    }
 }

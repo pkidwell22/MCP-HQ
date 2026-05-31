@@ -10,7 +10,7 @@ let package = Package(
         .executable(name: "MCPHQApp", targets: ["MCPHQApp"]),
     ],
     targets: [
-        .target(name: "MCPHQCore"),
+        .target(name: "MCPHQCore", linkerSettings: [.linkedLibrary("sqlite3"), .linkedFramework("Security")]),
         .executableTarget(name: "MCPHQCLI", dependencies: ["MCPHQCore"]),
         .executableTarget(name: "MCPHQApp", dependencies: ["MCPHQCore"]),
         .testTarget(name: "MCPHQCoreTests", dependencies: ["MCPHQCore"], resources: [.copy("Fixtures")]),

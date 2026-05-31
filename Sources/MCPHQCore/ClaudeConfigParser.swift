@@ -22,7 +22,7 @@ public struct ClaudeConfigParser: Sendable {
             guard let server = config.mcpServers[name] else { continue }
             if let command = server.command, !command.isEmpty {
                 servers.append(ServerDefinition(
-                    id: name,
+                    id: ServerDefinition.canonicalID(agent: .claude, sourcePath: sourcePath, name: name),
                     displayName: name,
                     transport: .stdio,
                     command: command,
@@ -34,7 +34,7 @@ public struct ClaudeConfigParser: Sendable {
             }
             if let url = server.url, !url.isEmpty {
                 servers.append(ServerDefinition(
-                    id: name,
+                    id: ServerDefinition.canonicalID(agent: .claude, sourcePath: sourcePath, name: name),
                     displayName: name,
                     transport: MCPTransport(configValue: server.transport ?? server.type),
                     args: [],

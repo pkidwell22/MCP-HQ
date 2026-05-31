@@ -27,18 +27,35 @@ public struct ScanOutputFormatter: Sendable {
         lines.append("Processes: \(result.processes.count)")
         lines.append("Issues: \(result.issues.count)")
 
+        if !result.sourceHealth.isEmpty {
+            lines.append("")
+            lines.append("Sources:")
+            for health in result.sourceHealth {
+                lines.append("  \(AgentRegistry.displayName(for: health.source.agent)) \(sourceStateText(health.state)): \(health.message)")
+                lines.append("    path: \(health.source.path)")
+            }
+        }
+
         if !result.servers.isEmpty {
             lines.append("")
-            let probesByServer = Dictionary(uniqueKeysWithValues: result.probeResults.map { ($0.serverID, $0) })
+            let probesByServer = Dictionary(result.probeResults.map { ($0.serverID, $0) }, uniquingKeysWith: { first, _ in first })
             for server in result.servers {
                 lines.append(server.displayName)
                 lines.append("  transport: \(server.transport.rawValue)")
                 if let command = server.command, !command.isEmpty {
-                    lines.append("  command: \(command)")
-                    lines.append("  args: \(server.args.isEmpty ? "—" : server.args.joined(separator: " "))")
+                    let redactedParts = SecretRedactor.redactCommandArguments([command] + server.args)
+                    lines.append("  command: \(redactedParts.first ?? "")")
+                    lines.append("  args: \(redactedParts.dropFirst().isEmpty ? "—" : redactedParts.dropFirst().joined(separator: " "))")
                 }
                 if let url = server.url, !url.isEmpty {
-                    lines.append("  url: \(url)")
+                    lines.append("  url: \(SecretRedactor.redactText(url))")
+                }
+                let headers = server.redactedHeaders
+                if !headers.isEmpty {
+                    lines.append("  headers:")
+                    for key in headers.keys.sorted() {
+                        lines.append("    \(key)=\(headers[key] ?? "")")
+                    }
                 }
                 let env = server.redactedEnvBindings
                 if !env.isEmpty {
@@ -87,6 +104,23 @@ public struct ScanOutputFormatter: Sendable {
         return lines.joined(separator: "\n")
     }
 
+    private func sourceStateText(_ state: ConfigSourceState) -> String {
+        switch state {
+        case .missing:
+            return "missing"
+        case .found:
+            return "found"
+        case .parsed:
+            return "parsed"
+        case .unsupported:
+            return "unsupported"
+        case .malformed:
+            return "malformed"
+        case .noServers:
+            return "no servers"
+        }
+    }
+
     public func formatJSON(_ result: ScanResult) throws -> String {
         let safeResult = SafeScanResult(result: result)
         let encoder = JSONEncoder()
@@ -106,6 +140,7 @@ public enum ScanOutputFormatterError: Error, Equatable, Sendable {
 private struct SafeScanResult: Codable {
     let servers: [SafeServerDefinition]
     let sources: [ConfigSource]
+    let sourceHealth: [ConfigSourceHealth]
     let issues: [ScanIssue]
     let processes: [MCPProcessSnapshot]
     let processMatches: [ServerProcessMatch]
@@ -114,6 +149,7 @@ private struct SafeScanResult: Codable {
     init(result: ScanResult) {
         self.servers = result.servers.map(SafeServerDefinition.init(server:))
         self.sources = result.sources
+        self.sourceHealth = result.sourceHealth
         self.issues = result.issues
         self.processes = result.processes
         self.processMatches = result.processMatches
@@ -128,6 +164,7 @@ private struct SafeServerDefinition: Codable {
     let command: String?
     let args: [String]
     let url: String?
+    let headers: [String: String]
     let envBindings: [String: String]
     let sourcePath: String
 
@@ -135,9 +172,16 @@ private struct SafeServerDefinition: Codable {
         self.id = server.id
         self.displayName = server.displayName
         self.transport = server.transport
-        self.command = server.command
-        self.args = server.args
-        self.url = server.url
+        if let command = server.command {
+            let commandParts = SecretRedactor.redactCommandArguments([command] + server.args)
+            self.command = commandParts.first
+            self.args = Array(commandParts.dropFirst())
+        } else {
+            self.command = nil
+            self.args = SecretRedactor.redactCommandArguments(server.args)
+        }
+        self.url = server.url.map(SecretRedactor.redactText)
+        self.headers = server.redactedHeaders
         self.envBindings = server.redactedEnvBindings
         self.sourcePath = server.sourcePath
     }

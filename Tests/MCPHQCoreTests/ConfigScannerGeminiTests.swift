@@ -9,7 +9,7 @@ final class ConfigScannerGeminiTests: XCTestCase {
 
         let result = scanner.scan()
 
-        XCTAssertEqual(result.servers.map(\.id), ["browserbase", "context7"])
+        XCTAssertEqual(result.servers.map(\.displayName), ["browserbase", "context7"])
         XCTAssertEqual(result.sources, [source])
         XCTAssertEqual(result.issues, [])
     }

@@ -10,11 +10,11 @@ final class ConfigScannerUnsupportedAgentTests: XCTestCase {
         try "{}".write(to: configURL, atomically: true, encoding: .utf8)
 
         let result = ConfigScanner(configSources: [
-            ConfigSource(agent: .cursor, path: configURL.path),
+            ConfigSource(agent: .unknown, path: configURL.path),
         ]).scan()
 
         XCTAssertEqual(result.servers, [])
-        XCTAssertEqual(result.sources, [ConfigSource(agent: .cursor, path: configURL.path)])
+        XCTAssertEqual(result.sources, [ConfigSource(agent: .unknown, path: configURL.path)])
         XCTAssertEqual(result.issues.count, 1)
         XCTAssertEqual(result.issues.first?.severity, .warning)
         XCTAssertTrue(result.issues.first?.message.contains("Unsupported agent") == true)

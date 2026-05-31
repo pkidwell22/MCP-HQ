@@ -12,12 +12,20 @@ public struct ServerProcessMatch: Codable, Equatable, Sendable, Identifiable {
     public let processID: Int32
     public let confidence: ServerProcessMatchConfidence
     public let reason: String
+    public let ownership: RuntimeOwnership
 
-    public init(serverID: String, processID: Int32, confidence: ServerProcessMatchConfidence, reason: String) {
+    public init(
+        serverID: String,
+        processID: Int32,
+        confidence: ServerProcessMatchConfidence,
+        reason: String,
+        ownership: RuntimeOwnership = .agentOwned
+    ) {
         self.serverID = serverID
         self.processID = processID
         self.confidence = confidence
         self.reason = reason
+        self.ownership = ownership
     }
 }
 

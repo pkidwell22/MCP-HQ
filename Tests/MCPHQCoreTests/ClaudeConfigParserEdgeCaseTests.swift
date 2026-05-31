@@ -15,10 +15,10 @@ final class ClaudeConfigParserEdgeCaseTests: XCTestCase {
 
         let servers = try ClaudeConfigParser().parse(data: json, sourcePath: "/tmp/mcp.json")
 
-        XCTAssertEqual(servers.map(\.id), ["events", "plain", "streamable"])
-        XCTAssertEqual(servers.first { $0.id == "plain" }?.transport, .http)
-        XCTAssertEqual(servers.first { $0.id == "events" }?.transport, .sse)
-        XCTAssertEqual(servers.first { $0.id == "streamable" }?.transport, .streamableHTTP)
+        XCTAssertEqual(servers.map(\.displayName), ["events", "plain", "streamable"])
+        XCTAssertEqual(servers.first { $0.displayName == "plain" }?.transport, .http)
+        XCTAssertEqual(servers.first { $0.displayName == "events" }?.transport, .sse)
+        XCTAssertEqual(servers.first { $0.displayName == "streamable" }?.transport, .streamableHTTP)
     }
 
     func testParseClaudeConfigRejectsServerWithoutCommandOrURL() throws {

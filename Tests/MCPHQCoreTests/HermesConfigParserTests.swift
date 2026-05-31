@@ -8,22 +8,25 @@ final class HermesConfigParserTests: XCTestCase {
 
         let servers = try HermesConfigParser().parse(data: data, sourcePath: fixtureURL.path)
 
-        XCTAssertEqual(servers.map(\.id), ["filesystem", "github", "twozero_td"])
+        XCTAssertEqual(servers.map(\.displayName), ["filesystem", "github", "twozero_td"])
 
-        let filesystem = try XCTUnwrap(servers.first { $0.id == "filesystem" })
+        let filesystem = try XCTUnwrap(servers.first { $0.displayName == "filesystem" })
+        XCTAssertEqual(filesystem.id, ServerDefinition.canonicalID(agent: .hermes, sourcePath: fixtureURL.path, name: "filesystem"))
         XCTAssertEqual(filesystem.transport, .stdio)
         XCTAssertEqual(filesystem.command, "npx")
         XCTAssertEqual(filesystem.args, ["-y", "@modelcontextprotocol/server-filesystem", "/Users/example"])
         XCTAssertEqual(filesystem.sourcePath, fixtureURL.path)
 
-        let github = try XCTUnwrap(servers.first { $0.id == "github" })
+        let github = try XCTUnwrap(servers.first { $0.displayName == "github" })
+        XCTAssertEqual(github.id, ServerDefinition.canonicalID(agent: .hermes, sourcePath: fixtureURL.path, name: "github"))
         XCTAssertEqual(github.command, "npx")
         XCTAssertEqual(github.args, ["-y", "@modelcontextprotocol/server-github"])
         XCTAssertEqual(github.envBindings["GITHUB_PERSONAL_ACCESS_TOKEN"], "fake-secret-token-1234567890")
         XCTAssertEqual(github.redactedEnvBindings["GITHUB_PERSONAL_ACCESS_TOKEN"], "<redacted>")
         XCTAssertEqual(github.envBindings["SAFE_REFERENCE"], "${GITHUB_PERSONAL_ACCESS_TOKEN}")
 
-        let remote = try XCTUnwrap(servers.first { $0.id == "twozero_td" })
+        let remote = try XCTUnwrap(servers.first { $0.displayName == "twozero_td" })
+        XCTAssertEqual(remote.id, ServerDefinition.canonicalID(agent: .hermes, sourcePath: fixtureURL.path, name: "twozero_td"))
         XCTAssertEqual(remote.transport, .http)
         XCTAssertEqual(remote.url, "http://127.0.0.1:7000/mcp")
         XCTAssertNil(remote.command)

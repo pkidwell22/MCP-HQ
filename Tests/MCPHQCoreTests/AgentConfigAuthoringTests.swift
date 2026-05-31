@@ -162,6 +162,48 @@ final class AgentConfigAuthoringTests: XCTestCase {
         XCTAssertEqual(try AgentConfigParser().parse(data: data, source: cursor).map(\.displayName), ["memory"])
     }
 
+    func testApplyBindingRejectsStalePreviewSnapshot() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let claudeURL = directory.appendingPathComponent("claude.json")
+        try #"{"mcpServers":{}}"#.write(to: claudeURL, atomically: true, encoding: .utf8)
+        let claude = ConfigSource(agent: .claude, path: claudeURL.path)
+        let template = ServerDefinition(
+            id: "template:memory",
+            displayName: "memory",
+            transport: .stdio,
+            command: "npx",
+            args: ["-y", "@modelcontextprotocol/server-memory"],
+            sourcePath: "/tmp/template.yaml"
+        )
+        let planner = AgentConfigAuthoringPlanner()
+        let draft = try planner.previewBinding(
+            templateServer: template,
+            targetSources: [claude],
+            existingServers: [],
+            enabledSourceIDs: [claude.id]
+        )
+
+        try #"{"mcpServers":{"other":{"command":"npx","args":["-y","other"]}}}"#.write(to: claudeURL, atomically: true, encoding: .utf8)
+
+        XCTAssertThrowsError(try planner.applyBinding(
+            templateServer: template,
+            targetSources: [claude],
+            existingServers: [],
+            enabledSourceIDs: [claude.id],
+            expectedFileSnapshots: draft.fileSnapshotsByPath
+        )) { error in
+            XCTAssertEqual(error as? AgentConfigAuthoringError, .staleTargetSource(claude.path))
+        }
+
+        let written = try String(contentsOf: claudeURL, encoding: .utf8)
+        XCTAssertTrue(written.contains("other"))
+        XCTAssertFalse(written.contains("memory"))
+    }
+
     func testApplyBindingRecordsDesiredStateAndBackupsWhenStoreIsProvided() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

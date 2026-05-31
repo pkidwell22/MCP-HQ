@@ -1133,7 +1133,8 @@ final class DashboardViewModel: ObservableObject {
                 templateServer: draftState.binding.templateServer,
                 targetSources: targetSources,
                 existingServers: lastScanResult.servers,
-                enabledSourceIDs: draftState.enabledSourceIDs
+                enabledSourceIDs: draftState.enabledSourceIDs,
+                expectedFileSnapshots: draftState.draft?.fileSnapshotsByPath
             )
             actionMessage = "Applied \(result.appliedTargets.count) binding source\(result.appliedTargets.count == 1 ? "" : "s")"
             refresh()

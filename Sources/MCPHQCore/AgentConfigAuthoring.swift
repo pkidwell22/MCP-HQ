@@ -50,6 +50,7 @@ public struct AgentBindingTargetPreview: Equatable {
     public let serverCount: Int
     public let serversAfterChange: [ServerDefinition]
     public let preview: GeneratedConfigPreview
+    public let fileSnapshot: AgentConfigFileSnapshot
 
     public init(
         source: ConfigSource,
@@ -57,7 +58,8 @@ public struct AgentBindingTargetPreview: Equatable {
         isEnabled: Bool,
         serverCount: Int,
         serversAfterChange: [ServerDefinition],
-        preview: GeneratedConfigPreview
+        preview: GeneratedConfigPreview,
+        fileSnapshot: AgentConfigFileSnapshot
     ) {
         self.source = source
         self.agentName = agentName
@@ -65,6 +67,7 @@ public struct AgentBindingTargetPreview: Equatable {
         self.serverCount = serverCount
         self.serversAfterChange = serversAfterChange
         self.preview = preview
+        self.fileSnapshot = fileSnapshot
     }
 }
 
@@ -75,6 +78,10 @@ public struct AgentBindingDraftPreview: Equatable {
 
     public var changedPreviews: [AgentBindingTargetPreview] {
         targetPreviews.filter { $0.preview.diffText != "No changes\n" }
+    }
+
+    public var fileSnapshotsByPath: [String: AgentConfigFileSnapshot] {
+        Dictionary(uniqueKeysWithValues: targetPreviews.map { ($0.source.path, $0.fileSnapshot) })
     }
 
     public var summaryText: String {
@@ -771,7 +778,8 @@ public struct AgentConfigAuthoringPlanner {
                 isEnabled: desiredEnabled,
                 serverCount: updatedServers.count,
                 serversAfterChange: updatedServers,
-                preview: preview
+                preview: preview,
+                fileSnapshot: try fileSnapshot(for: source)
             )
         }
 
@@ -786,8 +794,10 @@ public struct AgentConfigAuthoringPlanner {
         templateServer: ServerDefinition,
         targetSources: [ConfigSource],
         existingServers: [ServerDefinition],
-        enabledSourceIDs: Set<String>
+        enabledSourceIDs: Set<String>,
+        expectedFileSnapshots: [String: AgentConfigFileSnapshot]? = nil
     ) throws -> AgentBindingDraftApplyResult {
+        try verifyExpectedSnapshots(expectedFileSnapshots)
         let draft = try previewBinding(
             templateServer: templateServer,
             targetSources: targetSources,
@@ -841,6 +851,33 @@ public struct AgentConfigAuthoringPlanner {
         let url = URL(fileURLWithPath: source.path)
         guard fileManager.fileExists(atPath: url.path) else { return nil }
         return try Data(contentsOf: url)
+    }
+
+    private func fileSnapshot(for source: ConfigSource) throws -> AgentConfigFileSnapshot {
+        let url = URL(fileURLWithPath: source.path)
+        guard fileManager.fileExists(atPath: source.path) else {
+            return AgentConfigFileSnapshot(path: source.path, exists: false, byteCount: nil, modificationTime: nil, sha256: nil)
+        }
+        let attributes = try fileManager.attributesOfItem(atPath: source.path)
+        let data = try Data(contentsOf: url)
+        let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        return AgentConfigFileSnapshot(
+            path: source.path,
+            exists: true,
+            byteCount: data.count,
+            modificationTime: attributes[.modificationDate] as? Date,
+            sha256: digest
+        )
+    }
+
+    private func verifyExpectedSnapshots(_ snapshots: [String: AgentConfigFileSnapshot]?) throws {
+        guard let snapshots else { return }
+        for expected in snapshots.values {
+            let current = try fileSnapshot(for: ConfigSource(agent: .unknown, path: expected.path))
+            guard current == expected else {
+                throw AgentConfigAuthoringError.staleTargetSource(expected.path)
+            }
+        }
     }
 
     private func restoreSnapshots(_ snapshots: [String: Data?]) throws {

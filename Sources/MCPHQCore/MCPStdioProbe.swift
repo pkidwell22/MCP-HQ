@@ -66,7 +66,13 @@ public struct MCPStdioProbe: Sendable {
         do {
             try process.run()
             try writeJSONLine(initializeRequest(id: 1), to: stdin.fileHandleForWriting)
-            let initializeResponse = try waitForResponse(id: 1, process: process, buffer: stdoutBuffer, timeout: timeout)
+            let initializeResponse = try waitForResponse(
+                id: 1,
+                process: process,
+                buffer: stdoutBuffer,
+                timeout: timeout,
+                requestLabel: "initialize"
+            )
             if let message = errorMessage(in: initializeResponse) {
                 return MCPProbeResult(serverID: server.id, status: .error, message: "initialize failed: \(sanitize(message))")
             }
@@ -74,7 +80,13 @@ public struct MCPStdioProbe: Sendable {
             try writeJSONLine(initializedNotification(), to: stdin.fileHandleForWriting)
             let pingSucceeded = readPing(process: process, stdin: stdin.fileHandleForWriting, stdoutBuffer: stdoutBuffer)
             try writeJSONLine(toolsListRequest(id: 2), to: stdin.fileHandleForWriting)
-            let toolsResponse = try waitForResponse(id: 2, process: process, buffer: stdoutBuffer, timeout: timeout)
+            let toolsResponse = try waitForResponse(
+                id: 2,
+                process: process,
+                buffer: stdoutBuffer,
+                timeout: timeout,
+                requestLabel: "tools/list"
+            )
             if let message = errorMessage(in: toolsResponse) {
                 return MCPProbeResult(serverID: server.id, status: .error, message: "tools/list failed: \(sanitize(message))")
             }
@@ -104,9 +116,13 @@ public struct MCPStdioProbe: Sendable {
                 promptDetails: promptProbe?.promptDetails ?? [],
                 message: resourceProbe == nil && promptProbe == nil ? "tools/list succeeded" : "capability discovery succeeded"
             )
-        } catch ProbeError.timedOut {
+        } catch let ProbeError.timedOut(requestLabel) {
             terminate(process)
-            return MCPProbeResult(serverID: server.id, status: .error, message: "Timed out waiting for MCP response.")
+            return MCPProbeResult(
+                serverID: server.id,
+                status: .error,
+                message: "Timed out while waiting for MCP stdio \(requestLabel) response."
+            )
         } catch ProbeError.processExited {
             return MCPProbeResult(serverID: server.id, status: .error, message: "MCP server exited before probe completed.")
         } catch {
@@ -159,7 +175,13 @@ public struct MCPStdioProbe: Sendable {
         handle.write(Data([10]))
     }
 
-    private func waitForResponse(id: Int, process: Process, buffer: LockedDataBuffer, timeout: TimeInterval) throws -> [String: Any] {
+    private func waitForResponse(
+        id: Int,
+        process: Process,
+        buffer: LockedDataBuffer,
+        timeout: TimeInterval,
+        requestLabel: String
+    ) throws -> [String: Any] {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             while let line = buffer.popLine() {
@@ -174,7 +196,7 @@ public struct MCPStdioProbe: Sendable {
             if !process.isRunning { throw ProbeError.processExited }
             Thread.sleep(forTimeInterval: 0.01)
         }
-        throw ProbeError.timedOut
+        throw ProbeError.timedOut(requestLabel)
     }
 
     private func initializeRequest(id: Int) -> [String: Any] {
@@ -240,7 +262,13 @@ public struct MCPStdioProbe: Sendable {
     private func readPing(process: Process, stdin: FileHandle, stdoutBuffer: LockedDataBuffer) -> Bool? {
         do {
             try writeJSONLine(pingRequest(id: 900), to: stdin)
-            let response = try waitForResponse(id: 900, process: process, buffer: stdoutBuffer, timeout: min(timeout, 0.5))
+            let response = try waitForResponse(
+                id: 900,
+                process: process,
+                buffer: stdoutBuffer,
+                timeout: min(timeout, 0.5),
+                requestLabel: "ping"
+            )
             if errorMessage(in: response) != nil { return nil }
             return response["result"] != nil
         } catch {
@@ -250,7 +278,13 @@ public struct MCPStdioProbe: Sendable {
 
     private func readResources(process: Process, stdin: FileHandle, stdoutBuffer: LockedDataBuffer) throws -> ResourceProbePayload? {
         try writeJSONLine(resourcesListRequest(id: 3), to: stdin)
-        let response = try waitForResponse(id: 3, process: process, buffer: stdoutBuffer, timeout: timeout)
+        let response = try waitForResponse(
+            id: 3,
+            process: process,
+            buffer: stdoutBuffer,
+            timeout: timeout,
+            requestLabel: "resources/list"
+        )
         if errorMessage(in: response) != nil { return nil }
         guard let result = response["result"] as? [String: Any],
               let resources = result["resources"] as? [[String: Any]] else { return nil }
@@ -259,7 +293,13 @@ public struct MCPStdioProbe: Sendable {
 
     private func readPrompts(process: Process, stdin: FileHandle, stdoutBuffer: LockedDataBuffer) throws -> PromptProbePayload? {
         try writeJSONLine(promptsListRequest(id: 4), to: stdin)
-        let response = try waitForResponse(id: 4, process: process, buffer: stdoutBuffer, timeout: timeout)
+        let response = try waitForResponse(
+            id: 4,
+            process: process,
+            buffer: stdoutBuffer,
+            timeout: timeout,
+            requestLabel: "prompts/list"
+        )
         if errorMessage(in: response) != nil { return nil }
         guard let result = response["result"] as? [String: Any],
               let prompts = result["prompts"] as? [[String: Any]] else { return nil }
@@ -395,7 +435,7 @@ private struct PromptProbePayload {
 }
 
 private enum ProbeError: Error {
-    case timedOut
+    case timedOut(String)
     case processExited
 }
 

@@ -141,7 +141,7 @@ final class MCPStdioProbeTests: XCTestCase {
         XCTAssertEqual(result.message, "capability discovery succeeded")
     }
 
-    func testProbeReturnsErrorWhenServerTimesOut() throws {
+    func testProbeReturnsExplicitTimeoutMessageForInitialize() throws {
         let scriptURL = try makeExecutableScript("hanging-mcp.py", contents: """
         #!/usr/bin/env python3
         import time
@@ -160,7 +160,7 @@ final class MCPStdioProbeTests: XCTestCase {
         XCTAssertEqual(result.serverID, "hanging")
         XCTAssertEqual(result.status, .error)
         XCTAssertNil(result.toolCount)
-        XCTAssertTrue(result.message.contains("Timed out"), result.message)
+        XCTAssertTrue(result.message.contains("Timed out while waiting for MCP stdio initialize response."), result.message)
     }
 
     func testProbeSkipsRemoteServers() {

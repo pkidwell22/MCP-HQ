@@ -36,6 +36,7 @@ public struct MCPHTTPProbe {
                 to: url,
                 headers: configuredHeaders,
                 sessionID: nil,
+                requestLabel: "initialize",
                 expectsResponse: true
             )
             if let message = errorMessage(in: initialize.object) {
@@ -47,6 +48,7 @@ public struct MCPHTTPProbe {
                 to: url,
                 headers: configuredHeaders,
                 sessionID: initialize.sessionID,
+                requestLabel: "notifications/initialized",
                 expectsResponse: false
             )
             let pingSucceeded = readPing(from: url, headers: configuredHeaders, sessionID: initialize.sessionID)
@@ -56,6 +58,7 @@ public struct MCPHTTPProbe {
                 to: url,
                 headers: configuredHeaders,
                 sessionID: initialize.sessionID,
+                requestLabel: "tools/list",
                 expectsResponse: true
             )
             if let message = errorMessage(in: toolsResponse.object) {
@@ -69,10 +72,18 @@ public struct MCPHTTPProbe {
             let toolNames = tools.compactMap { $0["name"] as? String }
             let toolDetails = tools.compactMap(makeToolDetail)
             let resourceProbe = supportsResources(in: initialize.object)
-                ? try readResources(from: url, headers: configuredHeaders, sessionID: initialize.sessionID)
+                ? try readResources(
+                    from: url,
+                    headers: configuredHeaders,
+                    sessionID: initialize.sessionID
+                )
                 : nil
             let promptProbe = supportsPrompts(in: initialize.object)
-                ? try readPrompts(from: url, headers: configuredHeaders, sessionID: initialize.sessionID)
+                ? try readPrompts(
+                    from: url,
+                    headers: configuredHeaders,
+                    sessionID: initialize.sessionID
+                )
                 : nil
             return MCPProbeResult(
                 serverID: server.id,
@@ -99,6 +110,7 @@ public struct MCPHTTPProbe {
         to url: URL,
         headers: [String: String],
         sessionID: String?,
+        requestLabel: String,
         expectsResponse: Bool,
         requestTimeout: TimeInterval? = nil
     ) throws -> HTTPProbeResponse {
@@ -118,9 +130,13 @@ public struct MCPHTTPProbe {
             request.setValue(sessionID, forHTTPHeaderField: "Mcp-Session-Id")
         }
 
-        let response = try perform(request, timeout: effectiveTimeout)
+        let response = try perform(
+            request,
+            timeout: effectiveTimeout,
+            requestLabel: requestLabel
+        )
         guard (200...299).contains(response.statusCode) else {
-            throw HTTPProbeError.httpStatus(response.statusCode, url)
+            throw HTTPProbeError.httpStatus(response.statusCode, requestLabel, url)
         }
 
         let nextSessionID = response.sessionID ?? sessionID
@@ -131,7 +147,11 @@ public struct MCPHTTPProbe {
         return HTTPProbeResponse(object: parsed, sessionID: nextSessionID)
     }
 
-    private func perform(_ request: URLRequest, timeout: TimeInterval) throws -> RawHTTPResponse {
+    private func perform(
+        _ request: URLRequest,
+        timeout: TimeInterval,
+        requestLabel: String
+    ) throws -> RawHTTPResponse {
         let semaphore = DispatchSemaphore(value: 0)
         let taskResult = LockedHTTPTaskResult()
 
@@ -144,11 +164,17 @@ public struct MCPHTTPProbe {
         let timeoutResult = semaphore.wait(timeout: .now() + timeout)
         if timeoutResult == .timedOut {
             task.cancel()
-            throw HTTPProbeError.timedOut
+            throw HTTPProbeError.timedOut(requestLabel)
         }
 
         let snapshot = taskResult.snapshot()
-        if let error = snapshot.error { throw error }
+        if let error = snapshot.error {
+            let nsError = error as NSError
+            if nsError.domain == NSURLErrorDomain, URLError.Code(rawValue: nsError.code) == .timedOut {
+                throw HTTPProbeError.timedOut(requestLabel)
+            }
+            throw error
+        }
         guard let httpResponse = snapshot.response as? HTTPURLResponse else {
             throw HTTPProbeError.invalidHTTPResponse
         }
@@ -260,6 +286,7 @@ public struct MCPHTTPProbe {
                 to: url,
                 headers: headers,
                 sessionID: sessionID,
+                requestLabel: "ping",
                 expectsResponse: true,
                 requestTimeout: min(timeout, 0.5)
             )
@@ -276,6 +303,7 @@ public struct MCPHTTPProbe {
             to: url,
             headers: headers,
             sessionID: sessionID,
+            requestLabel: "resources/list",
             expectsResponse: true
         )
         if errorMessage(in: response.object) != nil { return nil }
@@ -290,6 +318,7 @@ public struct MCPHTTPProbe {
             to: url,
             headers: headers,
             sessionID: sessionID,
+            requestLabel: "prompts/list",
             expectsResponse: true
         )
         if errorMessage(in: response.object) != nil { return nil }
@@ -344,10 +373,10 @@ public struct MCPHTTPProbe {
     }
 
     private func diagnosticMessage(for error: Error, url: URL) -> String {
-        if case HTTPProbeError.timedOut = error {
-            return "Timed out waiting for MCP HTTP response from \(safeURLText(url))."
+        if case HTTPProbeError.timedOut(let requestLabel) = error {
+            return "Timed out while waiting for MCP HTTP \(requestLabel) response from \(safeURLText(url))."
         }
-        if case HTTPProbeError.httpStatus(let status, let endpoint) = error {
+        if case HTTPProbeError.httpStatus(let status, _, let endpoint) = error {
             return "HTTP MCP probe got HTTP \(status) from \(safeURLText(endpoint)). Check that the configured MCP HTTP endpoint and transport are correct."
         }
 
@@ -491,8 +520,8 @@ private struct RawHTTPResponse {
 }
 
 private enum HTTPProbeError: LocalizedError {
-    case timedOut
-    case httpStatus(Int, URL)
+    case timedOut(String)
+    case httpStatus(Int, String, URL)
     case invalidHTTPResponse
     case emptyResponse
     case invalidUTF8
@@ -503,7 +532,7 @@ private enum HTTPProbeError: LocalizedError {
         switch self {
         case .timedOut:
             return "Timed out waiting for MCP HTTP response."
-        case .httpStatus(let status, _):
+        case .httpStatus(let status, _, _):
             return "HTTP status \(status)."
         case .invalidHTTPResponse:
             return "Invalid HTTP response."

@@ -86,6 +86,7 @@ final class DashboardViewModel: ObservableObject {
     private let controlEndpointChecker: LocalControlEndpointChecker
     private let controlClientStateHelper: LocalControlClientStateHelper
     private var lastScanResult: ScanResult
+    private var lastSecretRecoveryReport: SecretRecoveryReport?
 
     var statusMenuSnapshot: StatusMenuSnapshot {
         StatusMenuSnapshot(state: state, isProbing: isProbing)
@@ -291,6 +292,7 @@ final class DashboardViewModel: ObservableObject {
 
     func rerunKeychainValidation(reportsSuccess: Bool = true) {
         guard let keychainSecretStore else {
+            lastSecretRecoveryReport = nil
             state = stateBuilder.build(from: lastScanResult)
             if reportsSuccess {
                 actionMessage = "Keychain validation unavailable"
@@ -307,6 +309,7 @@ final class DashboardViewModel: ObservableObject {
                 .filter { !persistedIDs.contains($0.secretID) }
             let currentReport = SecretRecoveryReporter(store: keychainSecretStore).report(records: currentRecords, validatedAt: validatedAt)
             let report = SecretRecoveryReport(states: persistedReport.states + currentReport.states)
+            lastSecretRecoveryReport = report
             state = stateBuilder.build(from: lastScanResult, secretRecoveryReport: report)
             if reportsSuccess {
                 if report.checkedCount == 0 {
@@ -318,10 +321,41 @@ final class DashboardViewModel: ObservableObject {
                 }
             }
         } catch {
+            lastSecretRecoveryReport = nil
             state = stateBuilder.build(from: lastScanResult)
             if reportsSuccess {
                 actionMessage = "Keychain validation failed: \(SecretRedactor.redactText(String(describing: error)))"
             }
+        }
+    }
+
+    func cleanupMigrationWriteFailedKeychainReferences(for row: DashboardKeychainRecoveryRow) {
+        guard let keychainSecretStore else {
+            actionMessage = "Migration cleanup unavailable; keychain store unavailable"
+            return
+        }
+
+        guard let report = lastSecretRecoveryReport else {
+            actionMessage = "Validate Keychain before attempting cleanup"
+            rerunKeychainValidation()
+            return
+        }
+
+        let plan = SecretMigrationWriteFailureRecoveryService()
+            .plan(for: report.recoverableStates, secretIDs: Set([row.id]))
+        guard plan.canRetry else {
+            actionMessage = "No migration-write-failed references are pending cleanup for this row."
+            return
+        }
+
+        actionMessage = plan.previewMessage
+        do {
+            let result = try SecretMigrationWriteFailureRecoveryService().execute(plan: plan, store: keychainSecretStore)
+            actionMessage = result.attemptedReferenceCount == 0 ? plan.previewMessage : result.message
+            rerunKeychainValidation(reportsSuccess: false)
+        } catch {
+            actionMessage = "Migration cleanup failed: \(SecretRedactor.redactText(String(describing: error)))"
+            rerunKeychainValidation(reportsSuccess: false)
         }
     }
 
@@ -2540,6 +2574,9 @@ struct DashboardView: View {
                     rows: model.state.keychainRecoveryRows,
                     reviewConfig: { row in
                         configPreview = model.configPreview(sourcePath: row.sourcePath)
+                    },
+                    rerunMigrationCleanup: { row in
+                        model.cleanupMigrationWriteFailedKeychainReferences(for: row)
                     },
                     openMigrationReview: {
                         isShowingConfigManager = true
@@ -5372,6 +5409,7 @@ struct KeychainRecoveryList: View {
 struct KeychainRecoveryPanel: View {
     let rows: [DashboardKeychainRecoveryRow]
     let reviewConfig: (DashboardKeychainRecoveryRow) -> Void
+    let rerunMigrationCleanup: (DashboardKeychainRecoveryRow) -> Void
     let openMigrationReview: () -> Void
     let rerunValidation: () -> Void
 
@@ -5414,7 +5452,11 @@ struct KeychainRecoveryPanel: View {
                             reviewConfig(row)
                         }
                         Button(row.secondaryActionTitle) {
-                            rerunValidation()
+                            if row.supportsMigrationCleanup {
+                                rerunMigrationCleanup(row)
+                            } else {
+                                rerunValidation()
+                            }
                         }
                         Button(row.reviewActionTitle) {
                             openMigrationReview()

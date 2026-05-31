@@ -320,6 +320,7 @@ public struct DashboardKeychainRecoveryRow: Identifiable, Equatable, Sendable {
     public let primaryActionTitle: String
     public let secondaryActionTitle: String
     public let reviewActionTitle: String
+    public let supportsMigrationCleanup: Bool
 
     public init(
         id: String,
@@ -335,7 +336,8 @@ public struct DashboardKeychainRecoveryRow: Identifiable, Equatable, Sendable {
         validatedAt: Date?,
         primaryActionTitle: String = "Review Config",
         secondaryActionTitle: String = "Rerun Validation",
-        reviewActionTitle: String = "Open Migration Review"
+        reviewActionTitle: String = "Open Migration Review",
+        supportsMigrationCleanup: Bool = false
     ) {
         self.id = id
         self.serverName = SecretRedactor.redactText(serverName)
@@ -351,6 +353,7 @@ public struct DashboardKeychainRecoveryRow: Identifiable, Equatable, Sendable {
         self.primaryActionTitle = primaryActionTitle
         self.secondaryActionTitle = secondaryActionTitle
         self.reviewActionTitle = reviewActionTitle
+        self.supportsMigrationCleanup = supportsMigrationCleanup
     }
 }
 
@@ -501,7 +504,8 @@ public struct DashboardStateBuilder: Sendable {
                 validatedAt: state.validatedAt,
                 primaryActionTitle: actionTitles.primary,
                 secondaryActionTitle: actionTitles.secondary,
-                reviewActionTitle: actionTitles.review
+                reviewActionTitle: actionTitles.review,
+                supportsMigrationCleanup: state.recoveryStatus == .migrationWriteFailed
             )
         }
         .sorted { lhs, rhs in

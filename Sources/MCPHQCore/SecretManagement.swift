@@ -738,3 +738,115 @@ public struct SecretRecoveryReporter {
         return SecretRecoveryReport(states: states)
     }
 }
+
+public struct SecretMigrationWriteFailureRecoveryPlan: Equatable, Sendable {
+    public let targetSecretIDs: [String]
+    public let referencesToDelete: [KeychainSecretReference]
+
+    public init(states: [SecretRecoveryState]) {
+        var seenIDs = Set<String>()
+        var targetSecretIDs: [String] = []
+        for state in states where state.recoveryStatus == .migrationWriteFailed {
+            guard seenIDs.insert(state.id).inserted else { continue }
+            targetSecretIDs.append(state.id)
+        }
+
+        self.targetSecretIDs = targetSecretIDs
+        self.referencesToDelete = Array(
+            Set(targetSecretIDs.compactMap { id in
+                states.first(where: { $0.id == id })?.reference
+            })
+        ).sorted {
+            $0.service == $1.service ? $0.account < $1.account : $0.service < $1.service
+        }
+    }
+
+    public var isEmpty: Bool { targetSecretIDs.isEmpty || referencesToDelete.isEmpty }
+    public var canRetry: Bool { !isEmpty }
+
+    public var previewMessage: String {
+        if isEmpty {
+            return "No migration-write-failed Keychain references are pending cleanup."
+        }
+        return "Planned cleanup for \(targetSecretIDs.count) migration-write-failed row(s) covering \(referencesToDelete.count) Keychain reference(s)."
+    }
+}
+
+public struct SecretMigrationWriteFailureRecoveryResult: Equatable, Sendable {
+    public let attemptedReferenceCount: Int
+    public let deletedReferenceCount: Int
+    public let alreadyMissingReferenceCount: Int
+
+    public init(attemptedReferenceCount: Int, deletedReferenceCount: Int, alreadyMissingReferenceCount: Int) {
+        self.attemptedReferenceCount = attemptedReferenceCount
+        self.deletedReferenceCount = deletedReferenceCount
+        self.alreadyMissingReferenceCount = alreadyMissingReferenceCount
+    }
+
+    public var message: String {
+        guard attemptedReferenceCount > 0 else {
+            return "No migration-write-failed cleanup actions were needed."
+        }
+
+        return [
+            "Migration-write-failed cleanup complete:",
+            "\(deletedReferenceCount) reference(s) deleted.",
+            "\(alreadyMissingReferenceCount) already missing (idempotent cleanup)."
+        ].joined(separator: " ")
+    }
+}
+
+public struct SecretMigrationWriteFailureRecoveryService {
+    public init() {}
+
+    public func plan(
+        for states: [SecretRecoveryState],
+        secretIDs: Set<String>? = nil
+    ) -> SecretMigrationWriteFailureRecoveryPlan {
+        let filteredStates = if let secretIDs {
+            states.filter { secretIDs.contains($0.id) }
+        } else {
+            states
+        }
+        return SecretMigrationWriteFailureRecoveryPlan(states: filteredStates)
+    }
+
+    public func execute(
+        plan: SecretMigrationWriteFailureRecoveryPlan,
+        store: SecretStore
+    ) throws -> SecretMigrationWriteFailureRecoveryResult {
+        guard !plan.referencesToDelete.isEmpty else {
+            return SecretMigrationWriteFailureRecoveryResult(
+                attemptedReferenceCount: 0,
+                deletedReferenceCount: 0,
+                alreadyMissingReferenceCount: 0
+            )
+        }
+
+        var deletedCount = 0
+        var missingCount = 0
+        for reference in plan.referencesToDelete {
+            guard try store.secretExists(for: reference) else {
+                missingCount += 1
+                continue
+            }
+
+            do {
+                try store.deleteSecret(for: reference)
+                deletedCount += 1
+            } catch {
+                if case let SecretStoreError.keychainStatus(_, status) = error,
+                   status == errSecItemNotFound {
+                    missingCount += 1
+                } else {
+                    throw error
+                }
+            }
+        }
+        return SecretMigrationWriteFailureRecoveryResult(
+            attemptedReferenceCount: plan.referencesToDelete.count,
+            deletedReferenceCount: deletedCount,
+            alreadyMissingReferenceCount: missingCount
+        )
+    }
+}

@@ -163,6 +163,110 @@ final class SecretManagementTests: XCTestCase {
         }
     }
 
+    func testMigrationWriteFailureRecoveryPlanTargetsOnlyMigrationRows() {
+        let missingReference = KeychainSecretReference.stable(serverID: "github", secretName: "OTHER_TOKEN")
+        let migrationReference = KeychainSecretReference.stable(serverID: "github", secretName: "GITHUB_TOKEN")
+        let missingState = SecretRecoveryState(
+            secretID: "github:environment:OTHER_TOKEN",
+            sourcePath: "/tmp/other.json",
+            serverName: "GitHub",
+            fieldKind: .environment,
+            fieldName: "OTHER_TOKEN",
+            reference: missingReference,
+            presence: SecretPresenceCheck(
+                reference: missingReference,
+                status: .missing,
+                message: "Secret is missing"
+            ),
+            previousStatus: "present",
+            validatedAt: Date(timeIntervalSince1970: 2_000)
+        )
+        let migrationState = SecretRecoveryState(
+            secretID: "github:environment:GITHUB_TOKEN",
+            sourcePath: "/tmp/claude.json",
+            serverName: "GitHub",
+            fieldKind: .environment,
+            fieldName: "GITHUB_TOKEN",
+            reference: migrationReference,
+            presence: SecretPresenceCheck(
+                reference: migrationReference,
+                status: .missing,
+                message: "Secret is missing"
+            ),
+            previousStatus: SecretRecoveryStatus.migrationWriteFailed.rawValue,
+            validatedAt: Date(timeIntervalSince1970: 2_000)
+        )
+
+        let plan = SecretMigrationWriteFailureRecoveryService().plan(
+            for: [missingState, migrationState],
+            secretIDs: nil
+        )
+
+        XCTAssertTrue(plan.canRetry)
+        XCTAssertEqual(plan.targetSecretIDs, ["github:environment:GITHUB_TOKEN"])
+        XCTAssertEqual(plan.referencesToDelete, [migrationReference])
+        XCTAssertFalse(plan.previewMessage.contains("other-token"))
+    }
+
+    func testMigrationWriteFailureCleanupIsIdempotent() throws {
+        let reference = KeychainSecretReference.stable(serverID: "github", secretName: "GITHUB_TOKEN")
+        let failureState = SecretRecoveryState(
+            secretID: "github:environment:GITHUB_TOKEN",
+            sourcePath: "/tmp/claude.json",
+            serverName: "GitHub",
+            fieldKind: .environment,
+            fieldName: "GITHUB_TOKEN",
+            reference: reference,
+            presence: SecretPresenceCheck(reference: reference, status: .missing, message: "Secret is missing"),
+            previousStatus: SecretRecoveryStatus.migrationWriteFailed.rawValue,
+            validatedAt: Date(timeIntervalSince1970: 2_500)
+        )
+        let store = InMemorySecretStore(values: [reference: "ghp_retrySecret1234567890"])
+        let service = SecretMigrationWriteFailureRecoveryService()
+        let plan = service.plan(for: [failureState], secretIDs: nil)
+
+        let firstRun = try service.execute(plan: plan, store: store)
+        XCTAssertEqual(firstRun.attemptedReferenceCount, 1)
+        XCTAssertEqual(firstRun.deletedReferenceCount, 1)
+        XCTAssertEqual(firstRun.alreadyMissingReferenceCount, 0)
+        XCTAssertFalse(try store.secretExists(for: reference))
+
+        let secondRun = try service.execute(plan: plan, store: store)
+        XCTAssertEqual(secondRun.attemptedReferenceCount, 1)
+        XCTAssertEqual(secondRun.deletedReferenceCount, 0)
+        XCTAssertEqual(secondRun.alreadyMissingReferenceCount, 1)
+    }
+
+    func testMigrationWriteFailureRecoveryResultDoesNotExposePlainText() throws {
+        let sensitiveValue = "ghp_recoverySecret1234567890"
+        let failureReference = KeychainSecretReference.stable(serverID: "github", secretName: "GITHUB_TOKEN")
+        let recoveryState = SecretRecoveryState(
+            secretID: "github:environment:GITHUB_TOKEN",
+            sourcePath: "/tmp/claude.json",
+            serverName: "GitHub",
+            fieldKind: .environment,
+            fieldName: "GITHUB_TOKEN",
+            reference: failureReference,
+            presence: SecretPresenceCheck(
+                reference: failureReference,
+                status: .missing,
+                message: "Secret value was \(sensitiveValue)"
+            ),
+            previousStatus: SecretRecoveryStatus.migrationWriteFailed.rawValue,
+            validatedAt: Date(timeIntervalSince1970: 3_000)
+        )
+        let service = SecretMigrationWriteFailureRecoveryService()
+        let report = SecretRecoveryReport(states: [recoveryState])
+        let plan = service.plan(for: report.recoverableStates)
+        let store = InMemorySecretStore(values: [failureReference: sensitiveValue])
+
+        let result = try service.execute(plan: plan, store: store)
+
+        XCTAssertFalse(plan.previewMessage.contains(sensitiveValue))
+        XCTAssertFalse(result.message.contains(sensitiveValue))
+        XCTAssertFalse(String(describing: result).contains(sensitiveValue))
+    }
+
     func testKeychainReferenceRoundTripsPercentEncodedAccount() throws {
         let reference = KeychainSecretReference.stable(serverID: "agent:/tmp/config.json:github", secretName: "AUTH TOKEN")
 

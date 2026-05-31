@@ -383,6 +383,7 @@ final class DashboardStateBuilderTests: XCTestCase {
         XCTAssertEqual(row.primaryActionTitle, "Review Config")
         XCTAssertEqual(row.secondaryActionTitle, "Rerun Validation")
         XCTAssertEqual(row.reviewActionTitle, "Open Migration Review")
+        XCTAssertFalse(row.supportsMigrationCleanup)
         XCTAssertTrue(row.guidance.contains("cannot recover an unknown secret value"))
         XCTAssertEqual(row.previousStatus, "present")
         XCTAssertFalse(String(describing: row).contains("ghp_recoverySecret"))
@@ -417,6 +418,7 @@ final class DashboardStateBuilderTests: XCTestCase {
         XCTAssertEqual(row.primaryActionTitle, "Review Failed Migration")
         XCTAssertEqual(row.secondaryActionTitle, "Rerun After Fix")
         XCTAssertEqual(row.reviewActionTitle, "Open Secret Review")
+        XCTAssertTrue(row.supportsMigrationCleanup)
         XCTAssertTrue(row.guidance.contains("removed partial Keychain writes"))
         XCTAssertFalse(String(describing: row).contains("ghp_recoverySecret"))
     }

@@ -338,6 +338,63 @@ final class AgentBindingDesiredStateTests: XCTestCase {
         XCTAssertEqual(memoryRow.suggestedActionText, "Add memory to Cursor")
     }
 
+    func testCanonicalDriftActionMappingAndSummarySurfaceControls() throws {
+        let claude = ConfigSource(agent: .claude, path: "/tmp/claude.json")
+        let cursor = ConfigSource(agent: .cursor, path: "/tmp/cursor.json")
+        let pi = ConfigSource(agent: .pi, path: "/tmp/pi.json")
+        let template = ConfigSource(agent: .hermes, path: "/tmp/hermes.yaml")
+        let githubClaude = server(name: "github", source: claude)
+        let memoryTemplate = server(name: "memory", source: template)
+        let githubTemplate = server(name: "github", source: template)
+        let slackScanned = ServerDefinition(
+            id: ServerDefinition.canonicalID(agent: pi.agent, sourcePath: pi.path, name: "slack"),
+            displayName: "slack",
+            transport: .stdio,
+            command: "npx",
+            args: ["-y", "@modelcontextprotocol/server-slack", "--token", "xoxb_scannedSecret1234567890"],
+            envBindings: ["SLACK_TOKEN": "xoxb_scannedSecret1234567890"],
+            sourcePath: pi.path
+        )
+        let desiredSlack = ServerDefinition(
+            id: "template:slack",
+            displayName: "slack",
+            transport: .stdio,
+            command: "node",
+            args: ["server.js", "--token", "xoxb_desiredSecret1234567890"],
+            envBindings: ["SLACK_TOKEN": "keychain://MCP-HQ/slack"],
+            sourcePath: template.path
+        )
+
+        let model = AgentCanonicalAuthoringModel(
+            scanResult: ScanResult(servers: [githubClaude, slackScanned], sources: [claude, cursor, pi]),
+            desiredStates: [
+                SQLiteDesiredServerState(source: cursor, serverName: "memory", enabled: true, server: memoryTemplate, updatedAt: Date(timeIntervalSince1970: 10)),
+                SQLiteDesiredServerState(source: claude, serverName: "github", enabled: false, server: githubTemplate, updatedAt: Date(timeIntervalSince1970: 11)),
+                SQLiteDesiredServerState(source: pi, serverName: "slack", enabled: true, server: desiredSlack, updatedAt: Date(timeIntervalSince1970: 12)),
+            ]
+        )
+
+        let snapshot = AgentCanonicalConfigManagerSnapshot(model: model)
+
+        let githubRow = try XCTUnwrap(snapshot.binding(named: "github")?.sourceRows.first { $0.sourceID == claude.id })
+        XCTAssertEqual(githubRow.suggestedAction?.kind, .removeDisabledBinding)
+        XCTAssertFalse(githubRow.suggestedAction?.isReviewOnly ?? true)
+        XCTAssertEqual(githubRow.suggestedActionText, "Remove github from Claude")
+        XCTAssertEqual(githubRow.suggestedActionButtonLabel, "Preview disable")
+
+        let memoryRow = try XCTUnwrap(snapshot.binding(named: "memory")?.sourceRows.first { $0.sourceID == cursor.id })
+        XCTAssertEqual(memoryRow.suggestedAction?.kind, .restoreMissingDesiredBinding)
+        XCTAssertFalse(memoryRow.suggestedAction?.isReviewOnly ?? true)
+        XCTAssertEqual(memoryRow.suggestedActionText, "Add memory to Cursor")
+        XCTAssertEqual(memoryRow.suggestedActionButtonLabel, "Preview enable")
+
+        let slackRow = try XCTUnwrap(snapshot.binding(named: "slack")?.sourceRows.first { $0.sourceID == pi.id })
+        XCTAssertEqual(slackRow.suggestedAction?.kind, .replacePayloadWithDesiredState)
+        XCTAssertTrue(slackRow.suggestedAction?.isReviewOnly ?? false)
+        XCTAssertNil(slackRow.suggestedActionText)
+        XCTAssertEqual(slackRow.suggestedActionButtonLabel, "Review payload replacement")
+    }
+
     private func server(name: String, source: ConfigSource) -> ServerDefinition {
         ServerDefinition(
             id: ServerDefinition.canonicalID(agent: source.agent, sourcePath: source.path, name: name),

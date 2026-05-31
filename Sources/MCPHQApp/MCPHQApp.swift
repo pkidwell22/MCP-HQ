@@ -1155,6 +1155,62 @@ final class DashboardViewModel: ObservableObject {
         }
     }
 
+    func canonicalDriftActionPreview(binding: ConfigManagerBindingRow, sourceRow: AgentCanonicalConfigManagerSourceRow) -> ConfigBindingDraftSheetState {
+        guard let action = sourceRow.suggestedAction else {
+            return ConfigBindingDraftSheetState(
+                title: "Canonical Drift Action Unavailable",
+                subtitle: binding.displayName,
+                text: "No canonical drift action is available for this binding source row.",
+                binding: binding,
+                enabledSourceIDs: [],
+                canApply: false
+            )
+        }
+
+        let managerState = configManagerState()
+        guard let source = managerState.sources.first(where: { $0.source.id == sourceRow.sourceID })?.source else {
+            return ConfigBindingDraftSheetState(
+                title: "Canonical Drift Action Unavailable",
+                subtitle: binding.displayName,
+                text: "Source not found for this canonical drift action.",
+                binding: binding,
+                enabledSourceIDs: [],
+                canApply: false
+            )
+        }
+
+        do {
+            let executor = AgentCanonicalDriftActionExecutor()
+            let draft = try executor.draft(
+                for: action,
+                templateServer: binding.templateServer,
+                targetSource: source,
+                existingServers: lastScanResult.servers
+            )
+            return ConfigBindingDraftSheetState(
+                title: "Canonical Drift Action",
+                subtitle: action.title,
+                text: ConfigBindingDraftSheetState.text(for: draft),
+                binding: binding,
+                enabledSourceIDs: action.operation == .bindingDraftEnable || action.operation == .payloadReplacementPreview
+                    ? [source.id] : [],
+                draft: draft,
+                canApply: executor.canApply(action),
+                canonicalAction: action
+            )
+        } catch {
+            return ConfigBindingDraftSheetState(
+                title: "Canonical Drift Action Failed",
+                subtitle: action.title,
+                text: SecretRedactor.redactText(String(describing: error)),
+                binding: binding,
+                enabledSourceIDs: action.operation == .bindingDraftEnable ? [source.id] : [],
+                canApply: false,
+                canonicalAction: action
+            )
+        }
+    }
+
     func applyBindingDraft(_ draftState: ConfigBindingDraftSheetState) -> ConfigBindingDraftSheetState {
         guard draftState.canApply else {
             actionMessage = "Binding draft has no changes to apply"
@@ -1191,6 +1247,64 @@ final class DashboardViewModel: ObservableObject {
                 enabledSourceIDs: draftState.enabledSourceIDs,
                 draft: draftState.draft,
                 canApply: draftState.canApply
+            )
+        }
+    }
+
+    func applyCanonicalDriftAction(_ draftState: ConfigBindingDraftSheetState) -> ConfigBindingDraftSheetState {
+        guard draftState.canApply else {
+            actionMessage = "Canonical drift action requires review before apply."
+            return draftState
+        }
+        guard let action = draftState.canonicalAction else {
+            return applyBindingDraft(draftState)
+        }
+
+        let managerState = configManagerState()
+        guard let source = managerState.sources.first(where: { $0.source.id == action.sourceID })?.source else {
+            return ConfigBindingDraftSheetState(
+                title: "Canonical Drift Action Unavailable",
+                subtitle: draftState.subtitle,
+                text: "Source not found for this canonical drift action.",
+                binding: draftState.binding,
+                enabledSourceIDs: draftState.enabledSourceIDs,
+                draft: draftState.draft,
+                canApply: false,
+                canonicalAction: action
+            )
+        }
+
+        do {
+            let executor = AgentCanonicalDriftActionExecutor(controlPlaneStore: scanHistoryStore)
+            let result = try executor.apply(
+                for: action,
+                templateServer: draftState.binding.templateServer,
+                targetSource: source,
+                existingServers: lastScanResult.servers
+            )
+            actionMessage = "Applied canonical drift action to \(result.appliedTargets.count) source\(result.appliedTargets.count == 1 ? "" : "s")"
+            refresh()
+            return ConfigBindingDraftSheetState(
+                title: "Canonical Drift Action Applied",
+                subtitle: result.summaryText,
+                text: ConfigBindingDraftSheetState.text(for: result),
+                binding: draftState.binding,
+                enabledSourceIDs: draftState.binding.enabledSourceIDs,
+                canApply: false,
+                canonicalAction: action
+            )
+        } catch {
+            let message = SecretRedactor.redactText(String(describing: error))
+            actionMessage = "Canonical drift apply failed: \(message)"
+            return ConfigBindingDraftSheetState(
+                title: "Canonical Drift Action Apply Failed",
+                subtitle: draftState.subtitle,
+                text: message,
+                binding: draftState.binding,
+                enabledSourceIDs: draftState.enabledSourceIDs,
+                draft: draftState.draft,
+                canApply: draftState.canApply,
+                canonicalAction: action
             )
         }
     }
@@ -2057,6 +2171,7 @@ struct ConfigBindingDraftSheetState: Identifiable, Equatable {
     let enabledSourceIDs: Set<String>
     let draft: AgentBindingDraftPreview?
     let canApply: Bool
+    let canonicalAction: AgentCanonicalDriftSuggestedAction?
 
     init(binding: ConfigManagerBindingRow, enabledSourceIDs: Set<String>, draft: AgentBindingDraftPreview) {
         self.title = "Binding Draft"
@@ -2066,6 +2181,7 @@ struct ConfigBindingDraftSheetState: Identifiable, Equatable {
         self.enabledSourceIDs = enabledSourceIDs
         self.draft = draft
         self.canApply = !draft.changedPreviews.isEmpty
+        self.canonicalAction = nil
     }
 
     init(
@@ -2075,7 +2191,8 @@ struct ConfigBindingDraftSheetState: Identifiable, Equatable {
         binding: ConfigManagerBindingRow,
         enabledSourceIDs: Set<String>,
         draft: AgentBindingDraftPreview? = nil,
-        canApply: Bool = false
+        canApply: Bool = false,
+        canonicalAction: AgentCanonicalDriftSuggestedAction? = nil
     ) {
         self.title = title
         self.subtitle = subtitle
@@ -2084,6 +2201,7 @@ struct ConfigBindingDraftSheetState: Identifiable, Equatable {
         self.enabledSourceIDs = enabledSourceIDs
         self.draft = draft
         self.canApply = canApply
+        self.canonicalAction = canonicalAction
     }
 
     static func text(for result: AgentBindingDraftApplyResult) -> String {
@@ -2110,7 +2228,7 @@ struct ConfigBindingDraftSheetState: Identifiable, Equatable {
         return lines.joined(separator: "\n")
     }
 
-    private static func text(for draft: AgentBindingDraftPreview) -> String {
+    static func text(for draft: AgentBindingDraftPreview) -> String {
         var lines = [
             "Binding: \(draft.bindingName)",
             draft.summaryText,
@@ -2423,6 +2541,12 @@ struct DashboardView: View {
                 },
                 applyBindingDraft: { draft in
                     model.applyBindingDraft(draft)
+                },
+                makeCanonicalDriftActionDraft: { binding, sourceRow in
+                    model.canonicalDriftActionPreview(binding: binding, sourceRow: sourceRow)
+                },
+                applyCanonicalDriftAction: { draft in
+                    model.applyCanonicalDriftAction(draft)
                 },
                 makeBulkConnectDraft: { enabledSourceIDs in
                     model.bulkConnectDraftPreview(enabledSourceIDs: enabledSourceIDs)
@@ -4223,6 +4347,8 @@ struct ConfigManagerSheet: View {
     let makePreview: (ConfigSource) -> ConfigPreviewSheetState
     let makeBindingDraft: (ConfigManagerBindingRow, Set<String>) -> ConfigBindingDraftSheetState
     let applyBindingDraft: (ConfigBindingDraftSheetState) -> ConfigBindingDraftSheetState
+    let makeCanonicalDriftActionDraft: (ConfigManagerBindingRow, AgentCanonicalConfigManagerSourceRow) -> ConfigBindingDraftSheetState
+    let applyCanonicalDriftAction: (ConfigBindingDraftSheetState) -> ConfigBindingDraftSheetState
     let makeBulkConnectDraft: (Set<String>) -> ConfigBulkConnectDraftSheetState
     let saveBulkTargetProfile: (String, Set<String>) -> ConfigBulkConnectTargetProfileSaveResult
     let applyBulkConnectDraft: (ConfigBulkConnectDraftSheetState) -> ConfigBulkConnectDraftSheetState
@@ -4239,6 +4365,7 @@ struct ConfigManagerSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var preview: ConfigPreviewSheetState?
     @State private var bindingDraft: ConfigBindingDraftSheetState?
+    @State private var canonicalDriftActionDraft: ConfigBindingDraftSheetState?
     @State private var bulkConnectDraft: ConfigBulkConnectDraftSheetState?
     @State private var rollbackTransactions: ConfigRollbackTransactionsSheetState?
     @State private var isShowingBulkTargetSelector = false
@@ -4305,6 +4432,8 @@ struct ConfigManagerSheet: View {
                             ForEach(state.bindings) { binding in
                                 ConfigManagerBindingCard(binding: binding, sources: state.sources) { enabledSourceIDs in
                                     bindingDraft = makeBindingDraft(binding, enabledSourceIDs)
+                                } previewCanonicalDriftAction: { sourceRow in
+                                    canonicalDriftActionDraft = makeCanonicalDriftActionDraft(binding, sourceRow)
                                 } reviewSecrets: {
                                     secretReview = makeSecretReview(binding)
                                 }
@@ -4330,6 +4459,11 @@ struct ConfigManagerSheet: View {
         .sheet(item: $bindingDraft) { draft in
             ConfigBindingDraftSheet(draft: draft) {
                 bindingDraft = applyBindingDraft(draft)
+            }
+        }
+        .sheet(item: $canonicalDriftActionDraft) { draft in
+            ConfigBindingDraftSheet(draft: draft) {
+                canonicalDriftActionDraft = applyCanonicalDriftAction(draft)
             }
         }
         .sheet(isPresented: $isShowingBulkTargetSelector) {
@@ -4471,13 +4605,21 @@ struct ConfigManagerBindingCard: View {
     let binding: ConfigManagerBindingRow
     let sources: [ConfigManagerSourceRow]
     let previewDraft: (Set<String>) -> Void
+    let previewCanonicalDriftAction: (AgentCanonicalConfigManagerSourceRow) -> Void
     let reviewSecrets: () -> Void
     @State private var enabledSourceIDs: Set<String>
 
-    init(binding: ConfigManagerBindingRow, sources: [ConfigManagerSourceRow], previewDraft: @escaping (Set<String>) -> Void, reviewSecrets: @escaping () -> Void) {
+    init(
+        binding: ConfigManagerBindingRow,
+        sources: [ConfigManagerSourceRow],
+        previewDraft: @escaping (Set<String>) -> Void,
+        previewCanonicalDriftAction: @escaping (AgentCanonicalConfigManagerSourceRow) -> Void,
+        reviewSecrets: @escaping () -> Void
+    ) {
         self.binding = binding
         self.sources = sources
         self.previewDraft = previewDraft
+        self.previewCanonicalDriftAction = previewCanonicalDriftAction
         self.reviewSecrets = reviewSecrets
         self._enabledSourceIDs = State(initialValue: binding.enabledSourceIDs)
     }
@@ -4541,6 +4683,15 @@ struct ConfigManagerBindingCard: View {
                                         .font(.caption2.bold())
                                         .foregroundStyle(.blue)
                                         .lineLimit(1)
+                                    Button(row.suggestedActionButtonLabel ?? "Preview action") {
+                                        previewCanonicalDriftAction(row)
+                                    }
+                                    .font(.caption)
+                                } else if row.suggestedAction != nil {
+                                    Button(row.suggestedActionButtonLabel ?? "Review action") {
+                                        previewCanonicalDriftAction(row)
+                                    }
+                                    .font(.caption)
                                 }
                             }
                         }

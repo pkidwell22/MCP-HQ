@@ -116,6 +116,7 @@ public struct AgentCanonicalConfigManagerSourceRow: Identifiable, Equatable, Sen
     public let detailText: String
     public let suggestedAction: AgentCanonicalDriftSuggestedAction?
     public let suggestedActionText: String?
+    public let suggestedActionButtonLabel: String?
     public let isDrift: Bool
     public let isEnabledForAuthoring: Bool
 
@@ -134,6 +135,7 @@ public struct AgentCanonicalConfigManagerSourceRow: Identifiable, Equatable, Sen
         self.detailText = Self.detailText(binding: binding)
         self.suggestedAction = suggestedAction
         self.suggestedActionText = suggestedAction?.isLowRisk == true ? suggestedAction?.title : nil
+        self.suggestedActionButtonLabel = suggestedAction?.primaryActionLabel
         self.isDrift = binding.driftStatus.isDrift
         self.isEnabledForAuthoring = binding.intent == .desiredEnabled || binding.intent == .observedOnly
     }

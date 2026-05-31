@@ -749,7 +749,8 @@ public struct AgentConfigAuthoringPlanner {
         templateServer: ServerDefinition,
         targetSources: [ConfigSource],
         existingServers: [ServerDefinition],
-        enabledSourceIDs: Set<String>
+        enabledSourceIDs: Set<String>,
+        forcePreviewForSourceIDs: Set<String> = []
     ) throws -> AgentBindingDraftPreview {
         guard !targetSources.isEmpty else {
             throw AgentConfigAuthoringError.noTargetSources
@@ -763,7 +764,8 @@ public struct AgentConfigAuthoringPlanner {
             let currentlyHasBinding = currentServers.contains {
                 Self.normalizedName($0.displayName) == normalizedBindingName
             }
-            guard desiredEnabled != currentlyHasBinding else {
+            let shouldCreateOrRemove = forcePreviewForSourceIDs.contains(source.id) || desiredEnabled != currentlyHasBinding
+            guard shouldCreateOrRemove else {
                 return nil
             }
             let updatedServers = servers(

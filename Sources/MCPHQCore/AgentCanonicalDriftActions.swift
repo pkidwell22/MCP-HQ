@@ -99,6 +99,23 @@ public struct AgentCanonicalDriftActionPlan: Codable, Equatable, Sendable {
     }
 }
 
+public extension AgentCanonicalDriftSuggestedAction {
+    var primaryActionLabel: String {
+        switch operation {
+        case .bindingDraftEnable:
+            return "Preview enable"
+        case .bindingDraftDisable:
+            return "Preview disable"
+        case .payloadReplacementPreview:
+            return "Review payload replacement"
+        }
+    }
+
+    var isReviewOnly: Bool {
+        operation == .payloadReplacementPreview || risk == .reviewRequired
+    }
+}
+
 public struct AgentCanonicalDriftActionPlanner: Sendable {
     public init() {}
 

@@ -137,6 +137,7 @@ public struct MCPHQCommand: Sendable {
         var explicitSources: [ConfigSource] = []
         var endpointFile: String?
         var filterSeverity: DoctorFindingSeverity?
+        var filterCategory: DoctorFindingCategory?
         var filterSourcePath: String?
         var filterServer: String?
         var index = 0
@@ -174,6 +175,16 @@ public struct MCPHQCommand: Sendable {
                     return MCPHQCommandResult(exitCode: 2, stdout: "", stderr: "Invalid --severity value: \(args[index + 1])\n\(usage())")
                 }
                 filterSeverity = severity
+                index += 2
+            case "--category":
+                guard index + 1 < args.count else {
+                    return MCPHQCommandResult(exitCode: 2, stdout: "", stderr: "Missing value for --category\n\(usage())")
+                }
+                let categoryValue = args[index + 1].lowercased()
+                guard let category = DoctorFindingCategory(rawValue: categoryValue) else {
+                    return MCPHQCommandResult(exitCode: 2, stdout: "", stderr: "Invalid --category value: \(args[index + 1])\n\(usage())")
+                }
+                filterCategory = category
                 index += 2
             case "--source-path":
                 guard index + 1 < args.count else {
@@ -214,10 +225,15 @@ public struct MCPHQCommand: Sendable {
                 probeProvider: selectedProbeProvider,
                 secretStore: secretStore
             ).scan(sources: sources, includeProbes: true)
-            report = DoctorReportBuilder().build(from: result)
+            let keychainReport = doctorKeychainRecoveryReport(
+                for: result,
+                sourcePath: explicitSources.count == 1 ? explicitSources.first?.path : nil
+            )
+            report = DoctorReportBuilder().build(from: result, keychainRecoveryReport: keychainReport)
         }
         let filter = DoctorFindingFilter(
             severity: filterSeverity,
+            category: filterCategory,
             sourcePath: filterSourcePath,
             serverID: resolvedDoctorServerID(filterServer, in: report)
         )
@@ -841,6 +857,85 @@ public struct MCPHQCommand: Sendable {
             return match
         }
         return value
+    }
+
+    private func doctorKeychainRecoveryReport(
+        for result: ScanResult,
+        sourcePath: String? = nil
+    ) -> SecretRecoveryReport {
+        guard let secretStore else {
+            return SecretRecoveryReport(states: [])
+        }
+
+        let validatedAt = now()
+        let persistedReport: SecretRecoveryReport
+        if let scanHistoryStore {
+            do {
+                persistedReport = try scanHistoryStore.validateSecretBindings(
+                    sourcePath: sourcePath,
+                    store: secretStore,
+                    validatedAt: validatedAt
+                )
+            } catch {
+                persistedReport = SecretRecoveryReport(states: [])
+            }
+        } else {
+            persistedReport = SecretRecoveryReport(states: [])
+        }
+
+        let persistedIDs = Set(persistedReport.states.compactMap(\.secretID))
+        let records = Self.currentKeychainReferenceRecords(
+            from: result.servers,
+            sourcePath: sourcePath,
+            validatedAt: validatedAt
+        ).filter { !persistedIDs.contains($0.secretID) }
+        let currentReport = SecretRecoveryReporter(store: secretStore).report(
+            records: records,
+            validatedAt: validatedAt
+        )
+        return SecretRecoveryReport(states: persistedReport.states + currentReport.states)
+    }
+
+    private static func currentKeychainReferenceRecords(
+        from servers: [ServerDefinition],
+        sourcePath: String?,
+        validatedAt: Date
+    ) -> [SQLiteSecretBindingRecord] {
+        servers
+            .filter { sourcePath == nil || $0.sourcePath == sourcePath }
+            .flatMap { server in
+                let envRecords = server.envBindings.keys.sorted().compactMap { key -> SQLiteSecretBindingRecord? in
+                    guard let value = server.envBindings[key],
+                          let reference = KeychainSecretReference.parse(from: value) else { return nil }
+                    return SQLiteSecretBindingRecord(
+                        secretID: "\(server.id):\(SecretFieldKind.environment.rawValue):\(key)",
+                        sourcePath: server.sourcePath,
+                        serverName: server.displayName,
+                        fieldKind: .environment,
+                        fieldName: key,
+                        reference: reference,
+                        status: "configured",
+                        updatedAt: validatedAt,
+                        validatedAt: nil
+                    )
+                }
+                let headerRecords = server.headers.keys.sorted().compactMap { key -> SQLiteSecretBindingRecord? in
+                    guard let value = server.headers[key],
+                          let reference = KeychainSecretReference.parse(from: value) else { return nil }
+                    return SQLiteSecretBindingRecord(
+                        secretID: "\(server.id):\(SecretFieldKind.header.rawValue):\(key)",
+                        sourcePath: server.sourcePath,
+                        serverName: server.displayName,
+                        fieldKind: .header,
+                        fieldName: key,
+                        reference: reference,
+                        status: "configured",
+                        updatedAt: validatedAt,
+                        validatedAt: nil
+                    )
+                }
+                return envRecords + headerRecords
+            }
     }
 
     private func runControl(args: [String]) throws -> MCPHQCommandResult {
@@ -1962,7 +2057,7 @@ public struct MCPHQCommand: Sendable {
         """
         Usage:
           mcphq scan [--json] [--probe] [--source agent:/path/to/config] [--endpoint-file path]
-          mcphq doctor [--json] [--probe] [--source agent:/path/to/config] [--endpoint-file path] [--severity error|warning|info] [--source-path path] [--server id-or-name]
+          mcphq doctor [--json] [--probe] [--source agent:/path/to/config] [--endpoint-file path] [--severity error|warning|info] [--category source|config|server|probe] [--source-path path] [--server id-or-name]
           mcphq config preview --source agent:/path/to/target [--server-source agent:/path/to/source] [--endpoint-file path]
           mcphq config apply --source agent:/path/to/target [--server-source agent:/path/to/source] [--dry-run] [--endpoint-file path]
           mcphq config connect-all preview --template-source agent:/path/to/source [--target-source agent:/path/to/target...] [--profile name] [--save-profile name] [--endpoint-file path]

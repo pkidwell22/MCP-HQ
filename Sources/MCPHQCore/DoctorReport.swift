@@ -75,37 +75,64 @@ public struct DoctorFindingGroup: Codable, Equatable, Sendable, Identifiable {
     public let id: String
     public let agentName: String
     public let sourcePath: String
+    public let serverID: String?
+    public let serverName: String?
+    public let severity: DoctorFindingSeverity?
+    public let category: DoctorFindingCategory?
     public let findings: [DoctorFinding]
 
-    public init(agentName: String, sourcePath: String, findings: [DoctorFinding]) {
-        self.id = "\(agentName):\(sourcePath)"
+    public init(
+        agentName: String,
+        sourcePath: String,
+        serverID: String? = nil,
+        serverName: String? = nil,
+        severity: DoctorFindingSeverity? = nil,
+        category: DoctorFindingCategory? = nil,
+        findings: [DoctorFinding]
+    ) {
+        self.id = [
+            agentName,
+            sourcePath,
+            serverID ?? "",
+            serverName ?? "",
+            severity?.rawValue ?? "",
+            category?.rawValue ?? "",
+        ].joined(separator: ":")
         self.agentName = agentName
         self.sourcePath = sourcePath
+        self.serverID = serverID
+        self.serverName = serverName
+        self.severity = severity
+        self.category = category
         self.findings = findings
     }
 }
 
 public struct DoctorFindingFilter: Codable, Equatable, Sendable {
     public let severity: DoctorFindingSeverity?
+    public let category: DoctorFindingCategory?
     public let sourcePath: String?
     public let serverID: String?
 
     public var isActive: Bool {
-        severity != nil || sourcePath != nil || serverID != nil
+        severity != nil || category != nil || sourcePath != nil || serverID != nil
     }
 
     public init(
         severity: DoctorFindingSeverity? = nil,
+        category: DoctorFindingCategory? = nil,
         sourcePath: String? = nil,
         serverID: String? = nil
     ) {
         self.severity = severity
+        self.category = category
         self.sourcePath = sourcePath?.isEmpty == true ? nil : sourcePath
         self.serverID = serverID?.isEmpty == true ? nil : serverID
     }
 
     public func matches(_ finding: DoctorFinding) -> Bool {
         if let severity, finding.severity != severity { return false }
+        if let category, finding.category != category { return false }
         if let sourcePath, finding.sourcePath != sourcePath { return false }
         if let serverID, finding.serverID != serverID { return false }
         return true
@@ -135,19 +162,38 @@ public struct DoctorReport: Codable, Equatable, Sendable {
         self.warningCount = sortedFindings.filter { $0.severity == .warning }.count
         self.infoCount = sortedFindings.filter { $0.severity == .info }.count
         self.groups = Dictionary(grouping: sortedFindings) { finding in
-            "\(finding.agentName):\(finding.sourcePath)"
-        }.values.map { grouped in
-            let first = grouped[0]
+            DoctorFindingGroupKey(
+                agentName: finding.agentName,
+                sourcePath: finding.sourcePath,
+                serverID: finding.serverID ?? "",
+                serverName: finding.serverName ?? "",
+                severity: finding.severity,
+                category: finding.category
+            )
+        }.compactMap { key, grouped in
+            guard let first = grouped.first else { return nil }
             return DoctorFindingGroup(
                 agentName: first.agentName,
                 sourcePath: first.sourcePath,
+                serverID: key.serverID.isEmpty ? nil : key.serverID,
+                serverName: key.serverName.isEmpty ? nil : key.serverName,
+                severity: key.severity,
+                category: key.category,
                 findings: grouped
             )
         }.sorted { lhs, rhs in
             if lhs.agentName != rhs.agentName {
                 return lhs.agentName.localizedCaseInsensitiveCompare(rhs.agentName) == .orderedAscending
             }
-            return lhs.sourcePath.localizedCaseInsensitiveCompare(rhs.sourcePath) == .orderedAscending
+            if lhs.sourcePath != rhs.sourcePath {
+                return lhs.sourcePath.localizedCaseInsensitiveCompare(rhs.sourcePath) == .orderedAscending
+            }
+            if lhs.serverName != rhs.serverName {
+                return (lhs.serverName ?? "").localizedCaseInsensitiveCompare(rhs.serverName ?? "") == .orderedAscending
+            }
+            if lhs.severity != rhs.severity { return lhs.severity ?? .info < rhs.severity ?? .info }
+            if lhs.category != rhs.category { return lhs.category?.rawValue ?? "" < rhs.category?.rawValue ?? "" }
+            return lhs.findings.first?.title.localizedCaseInsensitiveCompare(rhs.findings.first?.title ?? "") == .orderedAscending
         }
     }
 
@@ -159,14 +205,83 @@ public struct DoctorReport: Codable, Equatable, Sendable {
 
 public struct DoctorReportBuilder: Sendable {
     public init() {}
-
-    public func build(from result: ScanResult) -> DoctorReport {
+    
+    public func build(
+        from result: ScanResult,
+        keychainRecoveryReport: SecretRecoveryReport? = nil
+    ) -> DoctorReport {
         let serversByID = Dictionary(uniqueKeysWithValues: result.servers.map { ($0.id, $0) })
         var findings: [DoctorFinding] = []
         findings.append(contentsOf: result.sourceHealth.compactMap(sourceFinding))
         findings.append(contentsOf: result.issues.map { issueFinding($0, servers: result.servers) })
         findings.append(contentsOf: result.probeResults.compactMap { probeFinding($0, serversByID: serversByID) })
+        findings.append(contentsOf: recoveryFindings(from: result, keychainRecoveryReport: keychainRecoveryReport))
         return DoctorReport(findings: findings)
+    }
+
+    private func recoveryFindings(
+        from result: ScanResult,
+        keychainRecoveryReport: SecretRecoveryReport?
+    ) -> [DoctorFinding] {
+        guard let report = keychainRecoveryReport, !report.states.isEmpty else { return [] }
+        let sourceAgentNames = Dictionary(uniqueKeysWithValues: result.sources.map {
+            ($0.path, AgentRegistry.displayName(for: $0.agent))
+        })
+        let serversBySource = Dictionary(grouping: result.servers, by: \.sourcePath)
+        return report.states.compactMap { state in
+            recoveryFinding(
+                from: state,
+                sourceAgentNames: sourceAgentNames,
+                serversBySource: serversBySource
+            )
+        }
+    }
+
+    private func recoveryFinding(
+        from state: SecretRecoveryState,
+        sourceAgentNames: [String: String],
+        serversBySource: [String: [ServerDefinition]]
+    ) -> DoctorFinding? {
+        guard state.recoveryStatus != .present else { return nil }
+        let severity = state.recoveryStatus == .migrationWriteFailed ? DoctorFindingSeverity.error : .warning
+        let servers = serversBySource[state.sourcePath] ?? []
+        let agentName = sourceAgentNames[state.sourcePath] ?? "Unknown"
+        let fieldLabel = state.fieldKind == .environment ? "Environment" : "Header"
+        return DoctorFinding(
+            severity: severity,
+            category: .config,
+            agentName: agentName,
+            sourcePath: state.sourcePath,
+            serverID: resolveServerID(for: state, in: servers),
+            serverName: state.serverName,
+            title: "\(fieldLabel) credential state for \(state.fieldName)",
+            whyItMatters: state.summary,
+            suggestedFix: state.safeAction
+        )
+    }
+
+    private func resolveServerID(
+        for state: SecretRecoveryState,
+        in servers: [ServerDefinition]
+    ) -> String? {
+        if let name = state.serverName {
+            if let exact = servers.first(where: { $0.displayName == name }) { return exact.id }
+            if let insensitive = servers.first(where: { $0.displayName.localizedCaseInsensitiveCompare(name) == .orderedSame }) {
+                return insensitive.id
+            }
+        }
+        return parseServerID(from: state.secretID, fieldKind: state.fieldKind, fieldName: state.fieldName)
+    }
+
+    private func parseServerID(
+        from secretID: String?,
+        fieldKind: SecretFieldKind,
+        fieldName: String
+    ) -> String? {
+        guard let secretID else { return nil }
+        let suffix = ":\(fieldKind.rawValue):\(fieldName)"
+        guard secretID.hasSuffix(suffix) else { return nil }
+        return String(secretID.dropLast(suffix.count))
     }
 
     private func sourceFinding(_ health: ConfigSourceHealth) -> DoctorFinding? {
@@ -375,6 +490,15 @@ public struct DoctorReportFormatter: Sendable {
             lines.append("")
             lines.append("\(group.agentName)")
             lines.append("  source: \(group.sourcePath)")
+            if let serverName = group.serverName {
+                lines.append("  server: \(serverName)")
+            }
+            if let category = group.category {
+                lines.append("  category: \(category.rawValue)")
+            }
+            if let severity = group.severity {
+                lines.append("  severity: \(severity.rawValue)")
+            }
             for finding in group.findings {
                 lines.append("  [\(finding.severity.rawValue)] \(finding.category.rawValue): \(finding.title)")
                 if let serverName = finding.serverName {
@@ -398,4 +522,13 @@ public struct DoctorReportFormatter: Sendable {
         }
         return json
     }
+}
+
+private struct DoctorFindingGroupKey: Hashable, Sendable {
+    let agentName: String
+    let sourcePath: String
+    let serverID: String
+    let serverName: String
+    let severity: DoctorFindingSeverity
+    let category: DoctorFindingCategory
 }

@@ -150,9 +150,36 @@ final class DashboardViewModel: ObservableObject {
         let stored = try? scanResultStore?.load()
         let storedHistory = try? scanHistoryStore?.loadLatest()
         let initialResult = stored?.result ?? storedHistory?.result ?? emptyResult
+        let initialDoctorReport: DoctorReport
+        if let keychainSecretStore {
+            do {
+                let validatedAt = Date()
+                let persistedReport = try scanHistoryStore?.validateSecretBindings(
+                    store: keychainSecretStore,
+                    validatedAt: validatedAt
+                ) ?? SecretRecoveryReport(states: [])
+                let persistedIDs = Set(persistedReport.states.compactMap(\.secretID))
+                let currentRecords = Self.currentKeychainReferenceRecords(
+                    from: initialResult.servers,
+                    updatedAt: validatedAt
+                ).filter { !persistedIDs.contains($0.secretID) }
+                let currentReport = SecretRecoveryReporter(store: keychainSecretStore).report(
+                    records: currentRecords,
+                    validatedAt: validatedAt
+                )
+                initialDoctorReport = doctorBuilder.build(
+                    from: initialResult,
+                    keychainRecoveryReport: SecretRecoveryReport(states: persistedReport.states + currentReport.states)
+                )
+            } catch {
+                initialDoctorReport = doctorBuilder.build(from: initialResult)
+            }
+        } else {
+            initialDoctorReport = doctorBuilder.build(from: initialResult)
+        }
         self.lastScanResult = initialResult
         self.state = stateBuilder.build(from: initialResult)
-        self.doctorReport = doctorBuilder.build(from: initialResult)
+        self.doctorReport = initialDoctorReport
         let initialEndpointStore = Self.controlEndpointStore(from: .standard, fallback: controlEndpointStore)
         let initialLaunchAgentStatus = controlLaunchAgentManager.status(endpointStore: initialEndpointStore, checkLaunchd: false)
         self.controlHelperSnapshot = LocalControlHelperStatusSnapshot(
@@ -195,7 +222,7 @@ final class DashboardViewModel: ObservableObject {
             }
             lastScanResult = result
             state = stateBuilder.build(from: result)
-            doctorReport = doctorBuilder.build(from: result)
+            doctorReport = buildDoctorReport(from: result)
             let refreshedAt = Date()
             persist(result, scannedAt: refreshedAt)
             rerunKeychainValidation(reportsSuccess: false)
@@ -217,7 +244,6 @@ final class DashboardViewModel: ObservableObject {
         let clientStateHelper = controlClientStateHelper
         let router = localControlRouter()
         let stateBuilder = stateBuilder
-        let doctorBuilder = doctorBuilder
         let scanResultStore = scanResultStore
         let scanHistoryStore = scanHistoryStore
         Task.detached(priority: .userInitiated) {
@@ -245,7 +271,7 @@ final class DashboardViewModel: ObservableObject {
                     return
                 }
                 let nextState = stateBuilder.build(from: result)
-                let nextDoctorReport = doctorBuilder.build(from: result)
+                let nextDoctorReport = await MainActor.run { self.buildDoctorReport(from: result) }
                 let refreshedAt = Date()
                 Self.persist(result, scannedAt: refreshedAt, cache: scanResultStore, history: scanHistoryStore)
                 await MainActor.run {
@@ -723,6 +749,52 @@ final class DashboardViewModel: ObservableObject {
     func copyDoctorReport(_ report: DoctorReport? = nil) {
         copyText(DoctorReportFormatter().formatText(report ?? doctorReport))
         actionMessage = "Doctor report copied"
+    }
+
+    func copyDoctorFinding(_ finding: DoctorFinding) {
+        let source = finding.sourcePath.isEmpty ? "unknown" : finding.sourcePath
+        let server = finding.serverName ?? "unknown"
+        let findingText = [
+            "Doctor Finding",
+            "Source: \(source)",
+            "Server: \(server)",
+            "Severity: \(finding.severity.rawValue)",
+            "Category: \(finding.category.rawValue)",
+            "Title: \(finding.title)",
+            "Why: \(finding.whyItMatters)",
+            "Fix: \(finding.suggestedFix)",
+        ].joined(separator: "\n")
+        copyText(SecretRedactor.redactText(findingText))
+        actionMessage = "Doctor finding copied"
+    }
+
+    private func buildDoctorReport(from result: ScanResult) -> DoctorReport {
+        guard let keychainSecretStore else {
+            return doctorBuilder.build(from: result)
+        }
+
+        do {
+            let validatedAt = Date()
+            let persistedReport = try scanHistoryStore?.validateSecretBindings(
+                store: keychainSecretStore,
+                validatedAt: validatedAt
+            ) ?? SecretRecoveryReport(states: [])
+            let persistedIDs = Set(persistedReport.states.compactMap(\.secretID))
+            let currentRecords = Self.currentKeychainReferenceRecords(
+                from: result.servers,
+                updatedAt: validatedAt
+            ).filter { !persistedIDs.contains($0.secretID) }
+            let currentReport = SecretRecoveryReporter(store: keychainSecretStore).report(
+                records: currentRecords,
+                validatedAt: validatedAt
+            )
+            return doctorBuilder.build(
+                from: result,
+                keychainRecoveryReport: SecretRecoveryReport(states: persistedReport.states + currentReport.states)
+            )
+        } catch {
+            return doctorBuilder.build(from: result)
+        }
     }
 
     func exportDoctorReport(_ report: DoctorReport? = nil, format: DoctorReportExportFormat = .text) {
@@ -2718,6 +2790,7 @@ struct DashboardView: View {
                     copyReport: { report in model.copyDoctorReport(report) },
                     exportReport: { report, format in model.exportDoctorReport(report, format: format) },
                     saveReport: { report, format in model.saveDoctorReportAs(report, format: format) },
+                    copyFinding: { finding in model.copyDoctorFinding(finding) },
                     openConfig: { finding in model.openConfigSource(for: finding) },
                     previewConfig: { finding in configPreview = model.configPreview(for: finding) },
                     showsFilters: true
@@ -3893,11 +3966,13 @@ struct DoctorFindingsView: View {
     var copyReport: ((DoctorReport) -> Void)? = nil
     var exportReport: ((DoctorReport, DoctorReportExportFormat) -> Void)? = nil
     var saveReport: ((DoctorReport, DoctorReportExportFormat) -> Void)? = nil
+    var copyFinding: ((DoctorFinding) -> Void)? = nil
     var openConfig: ((DoctorFinding) -> Void)? = nil
     var previewConfig: ((DoctorFinding) -> Void)? = nil
     var showsFilters: Bool = false
 
     @AppStorage("doctorFilterSeverity") private var selectedSeverity = Self.allFilterValue
+    @AppStorage("doctorFilterCategory") private var selectedCategory = Self.allFilterValue
     @AppStorage("doctorFilterSourcePath") private var selectedSourcePath = Self.allFilterValue
     @AppStorage("doctorFilterServerID") private var selectedServerID = Self.allFilterValue
 
@@ -3972,6 +4047,22 @@ struct DoctorFindingsView: View {
                             .truncationMode(.middle)
                     }
 
+                    HStack(spacing: 10) {
+                        if let serverName = group.serverName {
+                            Text("Server: \(serverName)")
+                        }
+                        if let category = group.category {
+                            Text("Category: \(category.rawValue)")
+                        }
+                        if let severity = group.severity {
+                            Text("Severity: \(severity.rawValue)")
+                        }
+                    }
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+
                     ForEach(group.findings) { finding in
                         VStack(alignment: .leading, spacing: 4) {
                             HStack(alignment: .firstTextBaseline) {
@@ -4027,6 +4118,16 @@ struct DoctorFindingsView: View {
                 .pickerStyle(.menu)
                 .labelsHidden()
 
+                Picker("Category", selection: $selectedCategory) {
+                    Text("All categories").tag(Self.allFilterValue)
+                    ForEach(categoryOptions, id: \.rawValue) { category in
+                        Text(category.rawValue.capitalized)
+                            .tag(category.rawValue)
+                    }
+                }
+                .pickerStyle(.menu)
+                .labelsHidden()
+
                 Picker("Source", selection: $selectedSourcePath) {
                     Text("All sources").tag(Self.allFilterValue)
                     ForEach(sourceOptions, id: \.self) { sourcePath in
@@ -4056,6 +4157,7 @@ struct DoctorFindingsView: View {
                 if isFilterActive {
                     Button("Clear filters") {
                         selectedSeverity = Self.allFilterValue
+                        selectedCategory = Self.allFilterValue
                         selectedSourcePath = Self.allFilterValue
                         selectedServerID = Self.allFilterValue
                     }
@@ -4069,8 +4171,14 @@ struct DoctorFindingsView: View {
     private func findingActions(for finding: DoctorFinding) -> some View {
         let canOpenSource = !finding.sourcePath.isEmpty && FileManager.default.fileExists(atPath: finding.sourcePath)
         let canPreviewSource = finding.serverID != nil
-        if canOpenSource || canPreviewSource {
+        if canOpenSource || canPreviewSource || copyFinding != nil {
             HStack(spacing: 8) {
+                if let copyFinding {
+                    Button("Copy Finding") {
+                        copyFinding(finding)
+                    }
+                    .font(.caption2)
+                }
                 if canOpenSource, let openConfig {
                     Button("Open Config") {
                         openConfig(finding)
@@ -4092,13 +4200,25 @@ struct DoctorFindingsView: View {
         guard showsFilters else { return report }
         return report.filtered(by: DoctorFindingFilter(
             severity: DoctorFindingSeverity(rawValue: selectedSeverity),
+            category: DoctorFindingCategory(rawValue: selectedCategory),
             sourcePath: sourceOptions.contains(selectedSourcePath) ? selectedSourcePath : nil,
             serverID: serverOptions.contains(where: { $0.id == selectedServerID }) ? selectedServerID : nil
         ))
     }
 
     private var isFilterActive: Bool {
-        showsFilters && (selectedSeverity != Self.allFilterValue || selectedSourcePath != Self.allFilterValue || selectedServerID != Self.allFilterValue)
+        showsFilters && (
+            selectedSeverity != Self.allFilterValue
+            || selectedCategory != Self.allFilterValue
+            || selectedSourcePath != Self.allFilterValue
+            || selectedServerID != Self.allFilterValue
+        )
+    }
+
+    private var categoryOptions: [DoctorFindingCategory] {
+        Array(Set(report.findings.compactMap(\.category)).sorted { lhs, rhs in
+            lhs.rawValue.localizedCaseInsensitiveCompare(rhs.rawValue) == .orderedAscending
+        })
     }
 
     private var sourceOptions: [String] {

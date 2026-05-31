@@ -62,6 +62,47 @@ final class DoctorReportTests: XCTestCase {
         XCTAssertTrue(text.contains("fix: Set the environment variable."))
     }
 
+    func testDoctorTextFormatterShowsGroupedSourceServerSeverityCategory() {
+        let source = ConfigSource(agent: .claude, path: "/tmp/claude.json")
+        let server = ServerDefinition(
+            id: ServerDefinition.canonicalID(agent: .claude, sourcePath: source.path, name: "github"),
+            displayName: "github",
+            transport: .stdio,
+            command: "npx",
+            sourcePath: source.path
+        )
+        let result = ScanResult(
+            servers: [server],
+            sources: [source],
+            sourceHealth: [
+                ConfigSourceHealth(source: source, state: .parsed, serverCount: 1, message: "Found config")
+            ],
+            issues: [
+                ScanIssue(
+                    source: source,
+                    severity: .error,
+                    message: "Missing env var for github: GITHUB_TOKEN"
+                )
+            ],
+            probeResults: [
+                MCPProbeResult(
+                    serverID: server.id,
+                    status: .warning,
+                    message: "initialize failed for github"
+                )
+            ]
+        )
+
+        let report = DoctorReportBuilder().build(from: result)
+        let text = DoctorReportFormatter().formatText(report)
+
+        XCTAssertTrue(text.contains("source: /tmp/claude.json"))
+        XCTAssertTrue(text.contains("server: github"))
+        XCTAssertTrue(text.contains("category: server"))
+        XCTAssertTrue(text.contains("severity: error"))
+        XCTAssertTrue(text.contains("severity: warning"))
+    }
+
     func testIssueFindingsMatchServerWithinIssueSource() throws {
         let firstSource = ConfigSource(agent: .antigravity, path: "/tmp/antigravity.json")
         let secondSource = ConfigSource(agent: .cursor, path: "/tmp/cursor.json")
@@ -208,7 +249,50 @@ final class DoctorReportTests: XCTestCase {
         XCTAssertEqual(serverFinding.serverName, "github")
         XCTAssertEqual(serverReport.findings.count, 1)
 
+        let serverCategoryReport = report.filtered(by: DoctorFindingFilter(category: .server))
+        XCTAssertEqual(serverCategoryReport.findings.count, 1)
+        XCTAssertEqual(serverCategoryReport.findings.first?.serverID, githubID)
+
         let emptyReport = report.filtered(by: DoctorFindingFilter(severity: .error, sourcePath: "/tmp/hermes.yaml"))
         XCTAssertTrue(emptyReport.findings.isEmpty)
+    }
+
+    func testDoctorReportIncludesKeychainRecoveryFindingsWithRedactedStateText() throws {
+        let source = ConfigSource(agent: .antigravity, path: "/tmp/antigravity.json")
+        let server = ServerDefinition(
+            id: ServerDefinition.canonicalID(agent: .antigravity, sourcePath: source.path, name: "github"),
+            displayName: "github",
+            transport: .stdio,
+            command: "npx",
+            sourcePath: source.path
+        )
+        let secret = "ghp_doctorSecretFindings1234567890"
+        let recoveryState = SecretRecoveryState(
+            secretID: "\(server.id):environment:GITHUB_TOKEN",
+            sourcePath: source.path,
+            serverName: "github",
+            fieldKind: .environment,
+            fieldName: "GITHUB_TOKEN",
+            reference: KeychainSecretReference(account: "antigravity/github/GITHUB_TOKEN"),
+            presence: SecretPresenceCheck(
+                reference: KeychainSecretReference(account: "antigravity/github/GITHUB_TOKEN"),
+                status: .missing,
+                message: "Missing keychain secret token=\(secret)"
+            ),
+            validatedAt: nil
+        )
+        let report = DoctorReportBuilder().build(
+            from: ScanResult(servers: [server], sources: [source], sourceHealth: [], issues: [], probeResults: []),
+            keychainRecoveryReport: SecretRecoveryReport(states: [recoveryState])
+        )
+
+        let finding = try XCTUnwrap(report.findings.first)
+        XCTAssertEqual(finding.category, .config)
+        XCTAssertEqual(finding.serverID, server.id)
+
+        let text = DoctorReportFormatter().formatText(report)
+        let json = try DoctorReportFormatter().formatJSON(report)
+        XCTAssertFalse(text.contains(secret))
+        XCTAssertFalse(json.contains(secret))
     }
 }

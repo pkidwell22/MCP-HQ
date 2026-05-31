@@ -280,6 +280,7 @@ public struct LocalControlRouter: @unchecked Sendable {
     private let applier: AgentConfigSafeApplier
     private let runtimeSupervisor: HubRuntimeSupervisor
     private let controlPlaneStore: SQLiteScanHistoryStore?
+    private let secretStore: SecretStore?
     private let healthCacheStore: JSONHealthCacheStore?
     private let fileManager: FileManager
     private let now: @Sendable () -> Date
@@ -292,6 +293,7 @@ public struct LocalControlRouter: @unchecked Sendable {
         applier: AgentConfigSafeApplier = AgentConfigSafeApplier(),
         runtimeSupervisor: HubRuntimeSupervisor = HubRuntimeSupervisor(),
         controlPlaneStore: SQLiteScanHistoryStore? = nil,
+        secretStore: SecretStore? = MacOSKeychainSecretStore(),
         healthCacheStore: JSONHealthCacheStore? = nil,
         fileManager: FileManager = .default,
         now: @escaping @Sendable () -> Date = Date.init
@@ -303,6 +305,7 @@ public struct LocalControlRouter: @unchecked Sendable {
         self.applier = applier
         self.runtimeSupervisor = runtimeSupervisor
         self.controlPlaneStore = controlPlaneStore
+        self.secretStore = secretStore
         self.healthCacheStore = healthCacheStore
         self.fileManager = fileManager
         self.now = now
@@ -320,7 +323,14 @@ public struct LocalControlRouter: @unchecked Sendable {
         case .servers:
             return LocalControlResponse(servers: redactedServers(scan(request: request).servers))
         case .doctor:
-            return LocalControlResponse(doctorReport: doctorBuilder.build(from: scan(request: request)))
+            let result = scan(request: request)
+            let source = request.source?.path
+            return LocalControlResponse(
+                doctorReport: doctorBuilder.build(
+                    from: result,
+                    keychainRecoveryReport: doctorKeychainReport(from: result, sourcePath: source)
+                )
+            )
         case .configPreview:
             return configPreviewResponse(request)
         case .configApply:
@@ -374,6 +384,78 @@ public struct LocalControlRouter: @unchecked Sendable {
             return request.targetSources
         }
         return defaultSourceProvider.sources()
+    }
+
+    private func doctorKeychainReport(from result: ScanResult, sourcePath: String?) -> SecretRecoveryReport {
+        guard let secretStore else { return SecretRecoveryReport(states: []) }
+        let validatedAt = now()
+        let persistedReport: SecretRecoveryReport
+        if let controlPlaneStore {
+            do {
+                persistedReport = try controlPlaneStore.validateSecretBindings(
+                    sourcePath: sourcePath,
+                    store: secretStore,
+                    validatedAt: validatedAt
+                )
+            } catch {
+                persistedReport = SecretRecoveryReport(states: [])
+            }
+        } else {
+            persistedReport = SecretRecoveryReport(states: [])
+        }
+        let persistedIDs = Set(persistedReport.states.compactMap(\.secretID))
+        let currentRecords = currentKeychainReferenceRecords(
+            from: result.servers,
+            sourcePath: sourcePath,
+            validatedAt: validatedAt
+        ).filter { !persistedIDs.contains($0.secretID) }
+        let currentReport = SecretRecoveryReporter(store: secretStore).report(
+            records: currentRecords,
+            validatedAt: validatedAt
+        )
+        return SecretRecoveryReport(states: persistedReport.states + currentReport.states)
+    }
+
+    private func currentKeychainReferenceRecords(
+        from servers: [ServerDefinition],
+        sourcePath: String?,
+        validatedAt: Date
+    ) -> [SQLiteSecretBindingRecord] {
+        servers
+            .filter { sourcePath == nil || $0.sourcePath == sourcePath }
+            .flatMap { server in
+                let envRecords = server.envBindings.keys.sorted().compactMap { key -> SQLiteSecretBindingRecord? in
+                    guard let value = server.envBindings[key],
+                          let reference = KeychainSecretReference.parse(from: value) else { return nil }
+                    return SQLiteSecretBindingRecord(
+                        secretID: "\(server.id):\(SecretFieldKind.environment.rawValue):\(key)",
+                        sourcePath: server.sourcePath,
+                        serverName: server.displayName,
+                        fieldKind: .environment,
+                        fieldName: key,
+                        reference: reference,
+                        status: "configured",
+                        updatedAt: validatedAt,
+                        validatedAt: nil
+                    )
+                }
+                let headerRecords = server.headers.keys.sorted().compactMap { key -> SQLiteSecretBindingRecord? in
+                    guard let value = server.headers[key],
+                          let reference = KeychainSecretReference.parse(from: value) else { return nil }
+                    return SQLiteSecretBindingRecord(
+                        secretID: "\(server.id):\(SecretFieldKind.header.rawValue):\(key)",
+                        sourcePath: server.sourcePath,
+                        serverName: server.displayName,
+                        fieldKind: .header,
+                        fieldName: key,
+                        reference: reference,
+                        status: "configured",
+                        updatedAt: validatedAt,
+                        validatedAt: nil
+                    )
+                }
+                return envRecords + headerRecords
+            }
     }
 
     private func scan(request: LocalControlRequest) -> ScanResult {
